@@ -17,8 +17,11 @@ router = APIRouter()
 
 class ConnectRequest(BaseModel):
     repo_url: str
-    installation_id: str
-    github_repo_full_name: str
+    # Accept both str and int — the static callback page sends the raw
+    # `installation_id` query param as a string, older clients sent a number.
+    installation_id: str | int
+    # Optional: the browser callback only knows the repo URL from its cookie.
+    github_repo_full_name: str = ""
 
 
 class DisconnectRequest(BaseModel):
@@ -27,6 +30,9 @@ class DisconnectRequest(BaseModel):
 
 @router.post("/github/connect")
 async def connect_github(request: ConnectRequest):
+    if not request.repo_url:
+        raise HTTPException(status_code=400, detail="repo_url is required")
+    installation_id = str(request.installation_id)
     repo_identifier = _normalize_repo_identifier(request.repo_url)
     async with async_session_factory() as session:
         from sqlalchemy import select
@@ -37,12 +43,13 @@ async def connect_github(request: ConnectRequest):
         )
         existing_row = existing.scalar_one_or_none()
         if existing_row:
-            existing_row.installation_id = request.installation_id
-            existing_row.github_repo_full_name = request.github_repo_full_name
+            existing_row.installation_id = installation_id
+            if request.github_repo_full_name:
+                existing_row.github_repo_full_name = request.github_repo_full_name
         else:
             session.add(GitHubConnection(
                 repo_identifier=repo_identifier,
-                installation_id=request.installation_id,
+                installation_id=installation_id,
                 github_repo_full_name=request.github_repo_full_name,
             ))
         await session.commit()
