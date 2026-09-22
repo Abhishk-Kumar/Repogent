@@ -10,6 +10,7 @@ import { Features } from "@/components/features"
 import { LivePreview } from "@/components/live-preview"
 import { SiteFooter } from "@/components/site-footer"
 import { ProcessingScreen } from "@/components/processing-screen"
+import { ParticleBackground } from "@/components/codeatlas/particle-bg"
 import { CodeAtlasProvider } from "@/lib/codeatlas/context"
 
 export default function Page() {
@@ -24,7 +25,8 @@ export default function Page() {
 
   return (
     <CodeAtlasProvider>
-      <main className="relative min-h-screen">
+      <ParticleBackground />
+      <main className="relative z-10 min-h-screen">
         <SiteHeader />
         <Hero onOnboard={setRepo} />
         <HowItWorks />

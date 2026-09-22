@@ -14,9 +14,11 @@ export function Hero({ onOnboard }: { onOnboard: (repo: string) => void }) {
   const [dragging, setDragging] = useState(false)
   const [fileName, setFileName] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const handleSubmit = () => {
+    if (submitting) return
     if (tab === "url") {
       const repo = url.trim()
       if (!repo) {
@@ -28,6 +30,7 @@ export function Hero({ onOnboard }: { onOnboard: (repo: string) => void }) {
         return
       }
       setError(null)
+      setSubmitting(true)
       const short = repo.replace(/^https?:\/\/github\.com\//, "")
       onOnboard(short)
     } else {
@@ -36,6 +39,7 @@ export function Hero({ onOnboard }: { onOnboard: (repo: string) => void }) {
         return
       }
       setError(null)
+      setSubmitting(true)
       onOnboard(fileName)
     }
   }
@@ -134,11 +138,12 @@ export function Hero({ onOnboard }: { onOnboard: (repo: string) => void }) {
                 </div>
                 <Button
                   onClick={handleSubmit}
+                  disabled={submitting}
                   size="lg"
-                  className="group h-12 shrink-0 rounded-lg font-medium bg-[#34d399] text-black"
+                  className="group h-12 shrink-0 rounded-lg font-medium bg-[#34d399] text-black disabled:opacity-50"
                 >
-                  Onboard Repository
-                  <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
+                  {submitting ? "Starting..." : "Onboard Repository"}
+                  {!submitting && <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />}
                 </Button>
               </div>
             ) : (
@@ -179,11 +184,12 @@ export function Hero({ onOnboard }: { onOnboard: (repo: string) => void }) {
                 </button>
                 <Button
                   onClick={handleSubmit}
+                  disabled={submitting}
                   size="lg"
-                  className="group h-12 w-full rounded-lg font-medium bg-[#34d399] text-black"
+                  className="group h-12 w-full rounded-lg font-medium bg-[#34d399] text-black disabled:opacity-50"
                 >
-                  Onboard Repository
-                  <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
+                  {submitting ? "Starting..." : "Onboard Repository"}
+                  {!submitting && <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />}
                 </Button>
               </div>
             )}

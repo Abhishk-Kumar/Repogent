@@ -9,6 +9,14 @@ export interface OnboardResult {
   fileList: string[]
 }
 
+export interface JobProgress {
+  message: string
+  current: number
+  total: number
+  status: "pending" | "running" | "done" | "failed"
+  error?: string
+}
+
 interface CodeAtlasState {
   onboardResult: OnboardResult | null
   setOnboardResult: (r: OnboardResult) => void
@@ -16,6 +24,8 @@ interface CodeAtlasState {
   setScanReport: (r: ScanReport) => void
   explainPoints: ExplainPoint[] | null
   setExplainPoints: (r: ExplainPoint[]) => void
+  jobProgress: JobProgress | null
+  setJobProgress: (p: JobProgress | null) => void
 }
 
 const CodeAtlasCtx = createContext<CodeAtlasState | null>(null)
@@ -24,16 +34,19 @@ const globalStore: {
   onboardResult: OnboardResult | null
   scanReport: ScanReport | null
   explainPoints: ExplainPoint[] | null
+  jobProgress: JobProgress | null
 } = {
   onboardResult: null,
   scanReport: null,
   explainPoints: null,
+  jobProgress: null,
 }
 
 export function CodeAtlasProvider({ children }: { children: React.ReactNode }) {
   const [onboardResult, setOnboardResultState] = useState<OnboardResult | null>(globalStore.onboardResult)
   const [scanReport, setScanReportState] = useState<ScanReport | null>(globalStore.scanReport)
   const [explainPoints, setExplainPointsState] = useState<ExplainPoint[] | null>(globalStore.explainPoints)
+  const [jobProgress, setJobProgressState] = useState<JobProgress | null>(globalStore.jobProgress)
 
   const value = useMemo(
     () => ({
@@ -52,8 +65,13 @@ export function CodeAtlasProvider({ children }: { children: React.ReactNode }) {
         globalStore.explainPoints = r
         setExplainPointsState(r)
       },
+      jobProgress,
+      setJobProgress: (p: JobProgress | null) => {
+        globalStore.jobProgress = p
+        setJobProgressState(p)
+      },
     }),
-    [onboardResult, scanReport, explainPoints],
+    [onboardResult, scanReport, explainPoints, jobProgress],
   )
 
   return <CodeAtlasCtx.Provider value={value}>{children}</CodeAtlasCtx.Provider>

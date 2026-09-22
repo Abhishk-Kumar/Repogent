@@ -24,7 +24,7 @@ def _build_adjacency(graph: dict) -> tuple[dict[str, set[str]], dict[str, set[st
 def compute_blast_radius(file_path: str, graph: dict, max_depth: int = 10) -> dict:
     outgoing, incoming = _build_adjacency(graph)
 
-    if file_path not in incoming:
+    if file_path not in outgoing:
         return {
             "file_path": file_path,
             "direct_dependents": [],

@@ -142,14 +142,30 @@
   opacity: 0.5;
 }
 
-/* Custom thin scrollbar */
+/* Auto-hiding scrollbar — invisible by default, shows on hover/scroll */
+.thin-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color 0.3s;
+}
+.thin-scroll:hover,
+.thin-scroll:focus-within,
+.thin-scroll.scrolling {
+  scrollbar-color: oklch(1 0 0 / 18%) transparent;
+}
 .thin-scroll::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 .thin-scroll::-webkit-scrollbar-thumb {
-  background: oklch(1 0 0 / 12%);
+  background: transparent;
   border-radius: 9999px;
+  transition: background 0.3s;
+}
+.thin-scroll:hover::-webkit-scrollbar-thumb,
+.thin-scroll:focus-within::-webkit-scrollbar-thumb,
+.thin-scroll.scrolling::-webkit-scrollbar-thumb {
+  background: oklch(1 0 0 / 18%);
 }
 .thin-scroll::-webkit-scrollbar-track {
   background: transparent;

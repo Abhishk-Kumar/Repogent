@@ -23,6 +23,12 @@ export async function fetchScanReport(): Promise<ScanReport> {
   return client.fetchScanReport(sid)
 }
 
+export async function saveScanHistory(report: ScanReport): Promise<void> {
+  const sid = _sessionId
+  if (!sid) throw new Error("No session ID set")
+  await client.saveScanHistory(sid, report)
+}
+
 export async function fetchExplain(): Promise<ExplainPoint[]> {
   const sid = _sessionId
   if (!sid) throw new Error("No session ID set")

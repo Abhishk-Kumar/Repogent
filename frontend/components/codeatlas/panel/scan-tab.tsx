@@ -7,12 +7,20 @@ import {
   Wrench,
   AlertCircle,
   Download,
+  GitPullRequest,
+  Sparkles,
+  Loader2,
+  ExternalLink,
+  Share2,
 } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { SEVERITY_META } from "../style-maps"
 import { ScanSkeleton } from "../skeletons"
-import { fetchScanReport } from "@/lib/codeatlas/api"
+import { fetchScanReport, getSessionId, saveScanHistory } from "@/lib/codeatlas/api"
+import { useCodeAtlas } from "@/lib/codeatlas/context"
 import type { ScanReport, Severity } from "@/lib/codeatlas/types"
+
+const BASE = process.env.NEXT_PUBLIC_API_BASE_URL || (typeof window !== 'undefined' ? window.location.origin : "http://localhost:8000")
 
 const GRADE_COLOR: Record<string, string> = {
   A: "var(--primary)",
@@ -26,15 +34,30 @@ const SEVERITY_ORDER: Severity[] = ["critical", "high", "medium", "low"]
 
 function HealthHeader({ report }: { report: ScanReport }) {
   const color = GRADE_COLOR[report.grade]
+
+  const copyBadge = () => {
+    const badge = `[![CodeAtlas Health](https://img.shields.io/badge/health-${report.grade}-${report.grade === 'A' ? 'brightgreen' : report.grade === 'B' ? 'green' : report.grade === 'C' ? 'yellow' : report.grade === 'D' ? 'orange' : 'red'})](https://codeatlas.app)`
+    navigator.clipboard.writeText(badge)
+  }
+
   return (
     <div className="rounded-xl border border-border bg-card p-4">
-      <div className="flex items-center gap-4">
-        <div
-          className="flex size-16 shrink-0 items-center justify-center rounded-xl font-heading text-3xl font-bold"
-          style={{ background: `color-mix(in oklch, ${color} 15%, transparent)`, color }}
-        >
-          {report.grade}
-        </div>
+        <div className="flex items-center gap-4">
+          <div className="relative group">
+            <div
+              className="flex size-16 shrink-0 items-center justify-center rounded-xl font-heading text-3xl font-bold"
+              style={{ background: `color-mix(in oklch, ${color} 15%, transparent)`, color }}
+            >
+              {report.grade}
+            </div>
+            <button
+              onClick={copyBadge}
+              className="absolute -top-1 -right-1 flex size-5 items-center justify-center rounded-full border border-border bg-card opacity-0 transition-opacity group-hover:opacity-100 hover:bg-secondary"
+              title="Copy badge markdown"
+            >
+              <Share2 className="size-2.5" />
+            </button>
+          </div>
         <div>
           <p className="text-xs uppercase tracking-wider text-muted-foreground">
             Code Health Score
@@ -100,6 +123,35 @@ function IssueRow({
         <span className="flex-1 text-[13px] text-card-foreground">
           {issue.title}
         </span>
+        {/* Jira/Linear export */}
+        <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+          <div
+            onClick={() => {
+              const jiraUrl = `https://codeatlas.atlassian.net/secure/CreateIssueDetails!init.jspa?summary=CodeAtlas: ${encodeURIComponent(issue.title)}&description=${encodeURIComponent(`${issue.detail}\n\nFile: ${issue.file}:${issue.line}\n\nFix: ${issue.fix}`)}`
+              window.open(jiraUrl, '_blank', 'noopener,noreferrer')
+            }}
+            className="flex size-5 cursor-pointer items-center justify-center rounded text-muted-foreground/50 hover:text-muted-foreground"
+            title="Create Jira issue"
+            role="button"
+            tabIndex={0}
+            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') window.open(`https://codeatlas.atlassian.net/secure/CreateIssueDetails!init.jspa?summary=CodeAtlas: ${encodeURIComponent(issue.title)}&description=${encodeURIComponent(`${issue.detail}\n\nFile: ${issue.file}:${issue.line}\n\nFix: ${issue.fix}`)}`, '_blank', 'noopener,noreferrer') }}
+          >
+            <svg className="size-3" viewBox="0 0 24 24" fill="currentColor"><path d="M11.53 2C7.153 2 2 6.65 2 11.53c0 4.88 5.153 9.47 9.53 9.47 4.38 0 6.47-1.59 6.47-1.59l-1.36-1.36s-1.86 1.36-5.11 1.36c-3.25 0-7.45-3.57-7.45-7.88S8.28 4 11.53 4c3.25 0 5.11 1.36 5.11 1.36l1.36-1.36S15.91 2 11.53 2zM22 7.47l-7.5 7.5-3.5-3.5-1.41 1.41 4.91 4.91L23.41 8.88 22 7.47z"/></svg>
+          </div>
+          <div
+            onClick={() => {
+              const linearUrl = `https://linear.new?title=CodeAtlas: ${encodeURIComponent(issue.title)}&description=${encodeURIComponent(`${issue.detail}\n\nFile: ${issue.file}:${issue.line}\n\nFix: ${issue.fix}`)}`
+              window.open(linearUrl, '_blank', 'noopener,noreferrer')
+            }}
+            className="flex size-5 cursor-pointer items-center justify-center rounded text-muted-foreground/50 hover:text-muted-foreground"
+            title="Create Linear issue"
+            role="button"
+            tabIndex={0}
+            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') window.open(`https://linear.new?title=CodeAtlas: ${encodeURIComponent(issue.title)}&description=${encodeURIComponent(`${issue.detail}\n\nFile: ${issue.file}:${issue.line}\n\nFix: ${issue.fix}`)}`, '_blank', 'noopener,noreferrer') }}
+          >
+            <svg className="size-3" viewBox="0 0 24 24" fill="currentColor"><path d="M3 3h18v18H3V3zm2 2v14h14V5H5zm3 3h8v2H8V8zm0 4h8v2H8v-2zm0 4h5v2H8v-2z"/></svg>
+          </div>
+        </div>
         <ChevronDown
           className={`size-4 shrink-0 text-muted-foreground transition-transform ${
             open ? "rotate-180" : ""
@@ -201,6 +253,117 @@ function downloadReport(report: ScanReport, format: "csv" | "json" | "txt" | "pd
   URL.revokeObjectURL(url)
 }
 
+function AutoFixSection({ report }: { report: ScanReport }) {
+  const { onboardResult } = useCodeAtlas()
+  const repoUrl = onboardResult?.sessionId ?? ""
+  const [autoFixable, setAutoFixable] = useState<number | null>(null)
+  const [fixing, setFixing] = useState(false)
+  const [prInfo, setPrInfo] = useState<{ url: string; number: number } | null>(null)
+  const [estimating, setEstimating] = useState(false)
+
+  useEffect(() => {
+    if (!repoUrl || report.issues.length === 0) return
+    setEstimating(true)
+    fetch(`${BASE}/autofix/estimate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repo_url: repoUrl, scan_issues: report.issues }),
+    })
+      .then(r => r.json())
+      .then(d => setAutoFixable(d.auto_fixable))
+      .catch(() => {})
+      .finally(() => setEstimating(false))
+  }, [repoUrl, report.issues])
+
+  const handleGeneratePR = async () => {
+    if (!repoUrl) return
+    setFixing(true)
+    try {
+      const resp = await fetch(`${BASE}/autofix/run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repo_url: repoUrl, scan_issues: report.issues }),
+      })
+      const data = await resp.json()
+      if (data.error) {
+        console.error(data.error)
+        setFixing(false)
+        return
+      }
+      const pollId = setInterval(async () => {
+        const statusResp = await fetch(`${BASE}/jobs/${data.job_id}/status`)
+        const status = await statusResp.json()
+        if (status.status === "done" && status.result) {
+          clearInterval(pollId)
+          setFixing(false)
+          if (status.result.pr_url) {
+            setPrInfo({ url: status.result.pr_url, number: status.result.pr_number })
+          }
+        } else if (status.status === "failed") {
+          clearInterval(pollId)
+          setFixing(false)
+        }
+      }, 2000)
+    } catch {
+      setFixing(false)
+    }
+  }
+
+  if (prInfo) {
+    return (
+      <motion.a
+        initial={{ opacity: 0, y: -8 }}
+        animate={{ opacity: 1, y: 0 }}
+        href={prInfo.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-500 transition-colors hover:bg-emerald-500/20"
+      >
+        <GitPullRequest className="size-4" />
+        PR #{prInfo.number} opened
+        <ExternalLink className="size-3 ml-auto" />
+      </motion.a>
+    )
+  }
+
+  if (autoFixable === null || autoFixable === 0) {
+    return null
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -8 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-4"
+    >
+      <div className="flex items-center gap-3">
+        <span className="flex size-8 items-center justify-center rounded-lg bg-indigo-500/15 text-indigo-400">
+          <Sparkles className="size-4" />
+        </span>
+        <div className="flex-1">
+          <p className="text-sm font-medium">Auto-fix available</p>
+          <p className="text-xs text-muted-foreground">
+            {autoFixable} of {report.issues.length} issues can be auto-fixed
+          </p>
+        </div>
+        <button
+          onClick={handleGeneratePR}
+          disabled={fixing}
+          className="flex items-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-medium text-white transition-all hover:bg-emerald-400 disabled:opacity-50"
+        >
+          {fixing ? (
+            <Loader2 className="size-3 animate-spin" />
+          ) : (
+            <GitPullRequest className="size-3" />
+          )}
+          {fixing ? "Generating..." : "Generate Fix PR"}
+        </button>
+      </div>
+    </motion.div>
+  )
+}
+
+
 export function ScanTab() {
   const [report, setReport] = useState<ScanReport | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -212,7 +375,10 @@ export function ScanTab() {
     setError(null)
     fetchScanReport()
       .then((data) => {
-        if (active) setReport(data)
+        if (active) {
+          setReport(data)
+          saveScanHistory(data).catch(() => {})
+        }
       })
       .catch((err) => {
         if (active) setError(err.message)
@@ -289,6 +455,8 @@ export function ScanTab() {
 
       <div className="thin-scroll flex-1 space-y-4 overflow-y-auto p-4">
         <HealthHeader report={report} />
+
+        <AutoFixSection report={report} />
 
         <div className="space-y-3">
           {SEVERITY_ORDER.map((sev) => {

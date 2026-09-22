@@ -37,6 +37,16 @@ export interface AgentActivity {
   state: AgentActivityState
 }
 
+export interface JobStatus {
+  job_id: string
+  status: "pending" | "running" | "done" | "failed"
+  progress_current: number
+  progress_total: number
+  progress_message: string
+  error_message: string | null
+  result: Record<string, unknown> | null
+}
+
 export type Severity = "critical" | "high" | "medium" | "low"
 
 export interface ScanIssue {

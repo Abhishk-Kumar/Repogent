@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from app.ingestion.repo_loader import load_repo
 from app.graph.graph_builder import build_dependency_graph
 from app.chains.node_label_chain import generate_node_labels
+from app.utils.normalize import normalize_repo_url
 
 # Share the same session store as the onboard route
 from app.routes.onboard import _session_store
@@ -90,7 +91,8 @@ class TechStackResponse(BaseModel):
 
 @router.post("/graph", response_model=GraphResponse)
 async def get_graph(request: SessionRequest):
-    session = _session_store.get(request.session_id)
+    normalized = normalize_repo_url(request.session_id)
+    session = _session_store.get(normalized)
     if not session:
         session = await _build_session_from_repo(request.session_id)
         if not session:
@@ -108,17 +110,7 @@ async def get_graph(request: SessionRequest):
     )
 
 
-@router.post("/scan_report", response_model=ScanReportResponse)
-async def scan_report(request: ScanReportRequest):
-    session = _session_store.get(request.session_id)
-    if not session:
-        session = await _build_session_from_repo(request.session_id)
-        if not session:
-            return ScanReportResponse(
-                grade="N/A", score=0, summary="No session found",
-                metrics=[], issues=[], improvements=[],
-            )
-
+def _generate_scan_report(session: dict) -> ScanReportResponse:
     graph = session.get("graph", {})
     nodes = graph.get("nodes", [])
     file_list = session.get("file_list", [])
@@ -126,12 +118,33 @@ async def scan_report(request: ScanReportRequest):
     total_files = len(nodes)
     test_files = sum(1 for n in nodes if "test" in n.get("id", "").lower() or n.get("id", "").startswith("test"))
     doc_coverage = sum(1 for n in nodes if n.get("purpose", "").strip())
-    has_comments = sum(1 for n in nodes if n.get("functions") or n.get("classes"))
     routes = graph.get("routes", [])
 
-    complexity_score = min(100, max(20, 90 - total_files // 2))
-    test_coverage = min(100, int((test_files / max(total_files, 1)) * 100) + random.randint(5, 20))
-    doc_score = min(100, int((doc_coverage / max(total_files, 1)) * 100) + random.randint(10, 25))
+    # Deterministic scoring based on file counts
+    if total_files > 80:
+        complexity_score = 85  # A
+    elif total_files > 40:
+        complexity_score = 70  # B  
+    else:
+        complexity_score = 55  # C
+    
+    # Test coverage: percentage-based but capped
+    test_coverage = min(100, int((test_files / max(total_files, 1)) * 100))
+    if test_coverage > 80:
+        test_coverage = 90
+    elif test_coverage > 40:
+        test_coverage = 75
+    else:
+        test_coverage = 50
+    
+    # Documentation coverage: percentage-based with deterministic thresholds
+    doc_percentage = int((doc_coverage / max(total_files, 1)) * 100)
+    if doc_percentage > 80:
+        doc_score = 85
+    elif doc_percentage > 40:
+        doc_score = 70
+    else:
+        doc_score = 55
 
     metrics = [
         HealthMetric(label="Complexity", value=complexity_score, hint=f"Avg. cyclomatic complexity across {total_files} files"),
@@ -143,7 +156,6 @@ async def scan_report(request: ScanReportRequest):
     overall = int((complexity_score + test_coverage + doc_score) / 3)
 
     issues = []
-    improvement_list = []
 
     for n in nodes:
         if not n.get("purpose", "").strip():
@@ -260,9 +272,25 @@ async def scan_report(request: ScanReportRequest):
     )
 
 
+@router.post("/scan_report", response_model=ScanReportResponse)
+async def scan_report(request: ScanReportRequest):
+    normalized = normalize_repo_url(request.session_id)
+    session = _session_store.get(normalized)
+    if not session:
+        session = await _build_session_from_repo(request.session_id)
+        if not session:
+            return ScanReportResponse(
+                grade="N/A", score=0, summary="No session found",
+                metrics=[], issues=[], improvements=[],
+            )
+
+    return _generate_scan_report(session)
+
+
 @router.post("/explain_repo", response_model=ExplainRepoResponse)
 async def explain_repo(request: ExplainRepoRequest):
-    session = _session_store.get(request.session_id)
+    normalized = normalize_repo_url(request.session_id)
+    session = _session_store.get(normalized)
     if not session:
         session = await _build_session_from_repo(request.session_id)
         if not session:
@@ -317,13 +345,14 @@ async def _build_session_from_repo(repo_url: str) -> dict | None:
     try:
         metadata, files = load_repo(repo_url)
         graph = build_dependency_graph(metadata.local_path, files)
-        graph["nodes"] = generate_node_labels(graph["nodes"])
+        graph["nodes"] = await generate_node_labels(graph["nodes"])
         session = {
             "repo_path": metadata.local_path,
             "graph": graph,
             "file_list": files,
         }
-        _session_store[repo_url] = session
+        normalized = normalize_repo_url(repo_url)
+        _session_store[normalized] = session
         return session
     except Exception as e:
         logger.exception("Failed to build session from repo: %s", e)

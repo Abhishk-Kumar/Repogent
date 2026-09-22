@@ -1,5 +1,4 @@
 import type {
-  AgentActivityEvent,
   ChatMessage,
   ExplainPoint,
   RepoEdge,
@@ -7,21 +6,46 @@ import type {
   RepoGraph,
   ScanReport,
   TechBadge,
+  JobStatus,
 } from "./types"
 
 const BASE = process.env.NEXT_PUBLIC_API_BASE_URL || (typeof window !== 'undefined' ? window.location.origin : "http://localhost:8000")
 
-async function post<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  })
-  if (!res.ok) {
-    const text = await res.text().catch(() => "")
-    throw new Error(`POST ${path} ${res.status}: ${text}`)
+const FETCH_TIMEOUT = 30_000
+
+async function post<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT)
+  try {
+    const res = await fetch(`${BASE}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: signal || controller.signal,
+    })
+    if (!res.ok) {
+      const text = await res.text().catch(() => "")
+      throw new Error(`POST ${path} ${res.status}: ${text}`)
+    }
+    return res.json()
+  } finally {
+    clearTimeout(timeoutId)
   }
-  return res.json()
+}
+
+async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT)
+  try {
+    const res = await fetch(`${BASE}${path}`, { signal: signal || controller.signal })
+    if (!res.ok) {
+      const text = await res.text().catch(() => "")
+      throw new Error(`GET ${path} ${res.status}: ${text}`)
+    }
+    return res.json()
+  } finally {
+    clearTimeout(timeoutId)
+  }
 }
 
 function classifyByFolder(folder: string): RepoFileNode["group"] {
@@ -223,88 +247,61 @@ function mapBackendGraphToFrontend(data: {
   }
 }
 
-export function startOnboardingSSE(
+// ── New polling-based onboarding ──
+
+export async function startPollingJob(
   repoUrl: string,
-  onEvent: (event: AgentActivityEvent) => void,
-  onComplete: (data: {
-    sessionId: string
-    graph: RepoGraph
-    fileList: string[]
-  }) => void,
+  onProgress: (message: string, current: number, total: number) => void,
+  onComplete: (data: { sessionId: string; graph: RepoGraph; fileList: string[] }) => void,
   onError: (err: string) => void,
-): () => void {
-  const controller = new AbortController()
-  const url = `${BASE}/onboard`
+  signal?: AbortSignal,
+): Promise<void> {
+  try {
+    const { job_id } = await post<{ job_id: string; status: string }>("/onboard/async", { repo_url: repoUrl })
 
-  fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ repo_url: repoUrl }),
-    signal: controller.signal,
-  })
-    .then(async (response) => {
-      if (!response.ok) {
-        onError(`Server error: ${response.status}`)
+    const pollInterval = 2000
+
+    while (true) {
+      if (signal?.aborted) return
+
+      const status = await get<JobStatus>(`/jobs/${job_id}/status`)
+
+      if (status.status === "failed") {
+        onError(status.error_message || "Job failed")
         return
       }
 
-      const reader = response.body?.getReader()
-      if (!reader) {
-        onError("No response body")
-        return
+      if (status.progress_message) {
+        onProgress(status.progress_message, status.progress_current, status.progress_total)
       }
 
-      const decoder = new TextDecoder()
-      let buffer = ""
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split("\n")
-        buffer = lines.pop() ?? ""
-
-        let eventType = ""
-        let dataStr = ""
-
-        for (const line of lines) {
-          if (line.startsWith("event: ")) {
-            eventType = line.slice(7).trim()
-          } else if (line.startsWith("data: ")) {
-            dataStr = line.slice(6).trim()
-          } else if (line === "" && dataStr && eventType) {
-            try {
-              const parsed = JSON.parse(dataStr)
-              if (eventType === "complete") {
-                const graph = mapBackendGraphToFrontend(parsed.dependency_graph)
-                onComplete({
-                  sessionId: repoUrl,
-                  graph,
-                  fileList: parsed.sources ?? [],
-                })
-              } else if (eventType === "progress") {
-                onEvent({ type: "progress", message: parsed.message })
-              } else if (eventType === "error") {
-                onError(parsed.message)
-              }
-            } catch {
-              // skip unparseable events
-            }
-            eventType = ""
-            dataStr = ""
+      if (status.status === "done" && status.result) {
+        const result = status.result as {
+          dependency_graph: {
+            nodes: { id: string; label: string; folder: string; language: string; functions: string[]; classes: string[]; purpose: string }[]
+            edges: { id: string; source: string; target: string }[]
           }
+          sources: string[]
         }
+        const graph = mapBackendGraphToFrontend(result.dependency_graph)
+        onComplete({
+          sessionId: repoUrl,
+          graph,
+          fileList: result.sources ?? [],
+        })
+        return
       }
-    })
-    .catch((err) => {
-      if (err.name !== "AbortError") {
-        onError(err.message)
-      }
-    })
 
-  return () => controller.abort()
+      if (status.status === "running" || status.status === "pending") {
+        await new Promise((resolve) => setTimeout(resolve, pollInterval))
+      }
+    }
+  } catch (err) {
+    if (signal?.aborted) return
+    onError(err instanceof Error ? err.message : "Unknown error")
+  }
 }
+
 
 export async function fetchRepoGraph(sessionId: string): Promise<RepoGraph> {
   const data = await post<{
@@ -331,6 +328,10 @@ export async function fetchScanReport(
     session_id: sessionId,
   })
   return data
+}
+
+export async function saveScanHistory(repoUrl: string, report: ScanReport): Promise<void> {
+  await post("/scan_history", { repo_url: repoUrl, report })
 }
 
 export async function fetchExplain(

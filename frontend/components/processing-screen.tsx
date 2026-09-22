@@ -2,11 +2,10 @@
 
 import { useEffect, useState } from "react"
 import { AnimatePresence, motion } from "framer-motion"
-import { Check, Compass, Loader2, X } from "lucide-react"
+import { Check, Compass, Loader2, Sparkles, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { startOnboardingSSE } from "@/lib/codeatlas/client"
+import { startPollingJob } from "@/lib/codeatlas/client"
 import { useCodeAtlas } from "@/lib/codeatlas/context"
-import type { AgentActivityEvent } from "@/lib/codeatlas/types"
 
 export function ProcessingScreen({
   repo,
@@ -29,21 +28,23 @@ export function ProcessingScreen({
   const [progress, setProgress] = useState(0)
   const [done, setDone] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const { setOnboardResult } = useCodeAtlas()
+  const { setOnboardResult, setJobProgress } = useCodeAtlas()
   const repoUrl = repo.startsWith("http") ? repo : `https://github.com/${repo}`
-
   useEffect(() => {
-    const cleanup = startOnboardingSSE(
+    const controller = new AbortController()
+
+    startPollingJob(
       repoUrl,
-      (event: AgentActivityEvent) => {
+      (message, current, total) => {
+        setJobProgress({ message, current, total, status: "running" })
         setSteps((prev) => {
           const next = prev.map((s) =>
             s.state === "active" ? { ...s, state: "done" as const } : s,
           )
-          next.push({ message: event.message, state: "active" })
+          next.push({ message, state: "active" })
           return next
         })
-        setProgress((p) => Math.min(p + 18, 95))
+        setProgress(total > 0 ? Math.round((current / total) * 100) : (p) => Math.min(p + 18, 95))
       },
       (data) => {
         setOnboardResult({
@@ -51,30 +52,28 @@ export function ProcessingScreen({
           graph: data.graph,
           fileList: data.fileList,
         })
+        setJobProgress({ message: "Ready", current: 100, total: 100, status: "done" })
         setSteps((prev) => {
           const next = prev.map((s) =>
             s.state === "active" ? { ...s, state: "done" as const } : s,
           )
+          next.push({ message: "Ready!", state: "done" })
           return next
         })
         setDone(true)
         setProgress(100)
       },
-      (err: string) => {
+      (err) => {
+        setJobProgress({ message: err, current: 0, total: 0, status: "failed", error: err })
         setError(err)
       },
+      controller.signal,
     )
 
-    // Nudge progress periodically while waiting so it doesn't stay at 0%
-    const nudge = setInterval(() => {
-      setProgress((p) => (p < 95 ? Math.min(p + 4, 93) : p))
-    }, 8000)
-
     return () => {
-      cleanup?.()
-      clearInterval(nudge)
+      controller.abort()
     }
-  }, [repoUrl, setOnboardResult])
+  }, [repoUrl])
 
   useEffect(() => {
     if (done) {
@@ -122,7 +121,7 @@ export function ProcessingScreen({
             }
             className="flex size-10 items-center justify-center rounded-xl bg-primary text-primary-foreground"
           >
-            <Compass className="size-5" />
+            {done ? <Sparkles className="size-5" /> : <Compass className="size-5" />}
           </motion.span>
           <div>
             <h2 className="text-base font-semibold">
@@ -136,7 +135,6 @@ export function ProcessingScreen({
           </div>
         </div>
 
-        {/* progress bar */}
         <div className="mt-6">
           <div className="mb-2 flex justify-between text-xs text-muted-foreground">
             <span>
@@ -146,22 +144,22 @@ export function ProcessingScreen({
           </div>
           <div className="h-2 overflow-hidden rounded-full bg-secondary">
             <motion.div
-              className="h-full rounded-full bg-primary"
+              className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-emerald-500"
               animate={{
                 width: error ? "100%" : `${progress}%`,
-                background: error
-                  ? "var(--sev-high)"
-                  : "var(--primary)",
               }}
               transition={{ ease: "easeOut", duration: 0.5 }}
             />
           </div>
         </div>
 
-        {/* checklist */}
         {error ? (
-          <div className="mt-6 rounded-xl border border-sev-high/30 bg-sev-high/10 p-4">
-            <p className="text-sm text-sev-high">{error}</p>
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mt-6 rounded-xl border border-orange-500/30 bg-orange-500/10 p-4"
+          >
+            <p className="text-sm text-orange-500">{error}</p>
             <Button
               onClick={onClose}
               variant="outline"
@@ -169,17 +167,17 @@ export function ProcessingScreen({
             >
               Go back
             </Button>
-          </div>
+          </motion.div>
         ) : (
-          <ul className="mt-6 max-h-64 space-y-3 overflow-y-auto">
+          <ul className="mt-6 max-h-64 space-y-3 overflow-y-auto thin-scroll">
             {shown.map((step, i) => (
               <li key={i} className="flex items-center gap-3">
                 <span
                   className={`flex size-5 shrink-0 items-center justify-center rounded-full border transition-colors ${
                     step.state === "done"
-                      ? "border-primary bg-primary text-primary-foreground"
+                      ? "border-emerald-500 bg-emerald-500 text-white"
                       : step.state === "active"
-                        ? "border-primary text-primary"
+                        ? "border-indigo-500 text-indigo-400"
                         : "border-border text-muted-foreground"
                   }`}
                 >

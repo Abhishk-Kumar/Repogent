@@ -4,7 +4,7 @@ import logging
 
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-from app.llm import get_llm, call_llm_with_retry
+from app.llm_router import get_llm, call_llm_with_retry
 from app.graph.blast_radius import find_entry_candidates, _build_adjacency
 
 logger = logging.getLogger(__name__)
@@ -97,7 +97,7 @@ def _build_start_here_chain():
     return prompt | llm | StrOutputParser()
 
 
-def generate_start_here(graph: dict, goal: str) -> dict:
+async def generate_start_here(graph: dict, goal: str) -> dict:
     path_files = compute_reading_path(graph, goal)
 
     if not path_files:
@@ -119,7 +119,7 @@ def generate_start_here(graph: dict, goal: str) -> dict:
     }
 
     try:
-        raw = call_llm_with_retry(chain, inputs)
+        raw = await call_llm_with_retry(chain, inputs)
         json_match = re.search(r'\{.*\}', raw, re.DOTALL)
         if json_match:
             data = json.loads(json_match.group())

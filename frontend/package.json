@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --webpack",
     "build": "next build",
     "build:static": "next build && rm -rf ../backend/static && mkdir -p ../backend/static && cp -r out/* ../backend/static/",
     "start": "next start",

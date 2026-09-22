@@ -1,8 +1,11 @@
-import os 
+import os
 import shutil
 import tempfile
+import logging
 
 from app.models.schemas import RepoMetaData
+
+logger = logging.getLogger(__name__)
 
 IGNORE_DIRS={".git", "node_modules", "__pycache__", "venv", ".venv", "dist", "build"}
 IGNORE_FILES={"package-lock.json", "uv.lock", "yarn.lock", "poetry.lock"}
@@ -11,11 +14,9 @@ MAX_FILE_SIZE_BYTES=500_000 # => 500 kb
 Language_Extentions={
     ".py": "Python",
     ".js": "JavaScript",
-    ".java": "Java",
     ".tsx": "TypeScript",
     ".jsx": "JavaScript",
-    ".ts": "TypeScript",
-    ".go": "Go"
+    ".ts": "TypeScript"
 }
 
 def clone_repo(github_url: str)->str:
@@ -36,10 +37,13 @@ def traverse_repo(localpath:str)->list[str]:
                 continue
             filepath=os.path.join(root, filename)
             try:
-                if os.path.getsize(filepath) > MAX_FILE_SIZE_BYTES:
+                size = os.path.getsize(filepath)
+                if size > MAX_FILE_SIZE_BYTES:
+                    logger.warning("Skipping file exceeding max size (%d bytes): %s", size, filepath)
                     continue
-            except OSError:
-                    continue
+            except OSError as e:
+                logger.warning("OSError checking file size for %s: %s", filepath, e)
+                continue
             valid_files.append(filepath)
     return valid_files
 
@@ -57,14 +61,25 @@ def load_repo(github_url: str) -> tuple[RepoMetaData, list[str]]:
     localpath=clone_repo(github_url)
     file_paths=traverse_repo(localpath)
     languages=detect_languages(file_paths)
+    
+    # Identify unsupported files (not in supported extensions)
+    unsupported_files = []
+    supported_files = []
+    for path in file_paths:
+        ext=os.path.splitext(path)[1]
+        if ext in Language_Extentions:
+            supported_files.append(path)
+        else:
+            unsupported_files.append(path)
 
     metadata=RepoMetaData(
         repo_url=github_url,
         local_path=localpath,
-        file_count=len(file_paths),
-        languages_detected=languages
+        file_count=len(supported_files),  # Only count supported files
+        languages_detected=languages,
+        unsupported_files=unsupported_files
     )
-    return metadata, file_paths
+    return metadata, supported_files
 
 def cleanup_repo(local_path:str)-> None:
     """Deletes cloned repo from disk after processing"""

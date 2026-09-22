@@ -1,10 +1,11 @@
 "use client"
 
 import { AnimatePresence, motion } from "motion/react"
-import { Check, FolderGit2, GitBranch, TriangleAlert } from "lucide-react"
+import { Check, FolderGit2, GitBranch, TriangleAlert, Loader2 } from "lucide-react"
 import { useMemo } from "react"
 import { CompassLogo } from "./compass-logo"
 import { useCodeAtlas } from "@/lib/codeatlas/context"
+import { GitHubConnect } from "./github-connect"
 import type { AgentActivity } from "@/lib/codeatlas/types"
 
 function StatusIndicator({ state }: { state: AgentActivity["state"] }) {
@@ -15,7 +16,7 @@ function StatusIndicator({ state }: { state: AgentActivity["state"] }) {
         initial={{ scale: 0, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         transition={{ type: "spring", stiffness: 500, damping: 18 }}
-        className="flex size-4 items-center justify-center rounded-full bg-primary/15 text-primary"
+        className="flex size-4 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-500"
       >
         <Check className="size-2.5" strokeWidth={3} />
       </motion.span>
@@ -23,7 +24,7 @@ function StatusIndicator({ state }: { state: AgentActivity["state"] }) {
   }
   if (state === "warning") {
     return (
-      <span className="flex size-4 items-center justify-center rounded-full bg-sev-high/15 text-sev-high">
+      <span className="flex size-4 items-center justify-center rounded-full bg-orange-500/15 text-orange-500">
         <TriangleAlert className="size-2.5" />
       </span>
     )
@@ -31,26 +32,48 @@ function StatusIndicator({ state }: { state: AgentActivity["state"] }) {
   return (
     <span className="relative flex size-4 items-center justify-center">
       <span
-        className="absolute size-2.5 rounded-full bg-primary"
+        className="absolute size-2.5 rounded-full bg-indigo-500"
         style={{ animation: "ca-pulse-dot 1.4s ease-in-out infinite" }}
       />
-      <span className="absolute size-4 rounded-full bg-primary/20" />
+      <span className="absolute size-4 rounded-full bg-indigo-500/20" />
     </span>
   )
 }
 
 function ActivityBar() {
-  const { onboardResult } = useCodeAtlas()
+  const { onboardResult, jobProgress } = useCodeAtlas()
 
   const activity: AgentActivity[] = useMemo(() => {
+    if (jobProgress) {
+      if (jobProgress.status === "failed") {
+        return [
+          { id: "err", text: `Failed: ${jobProgress.error || jobProgress.message}`, state: "warning" as const },
+        ]
+      }
+      if (jobProgress.status === "running" || jobProgress.status === "pending") {
+        const progressText = jobProgress.total > 0
+          ? `(${jobProgress.current}/${jobProgress.total})`
+          : ""
+        return [
+          { id: "prog", text: `${jobProgress.message} ${progressText}`.trim(), state: "active" as const },
+        ]
+      }
+    }
+
     if (!onboardResult) return []
-    return [
+
+    const items: AgentActivity[] = [
       { id: "a1", text: "Repository cloned and analyzed", state: "complete" },
       { id: "a2", text: `Dependency graph: ${onboardResult.graph.nodes.length} nodes, ${onboardResult.graph.edges.length} edges`, state: "complete" },
       { id: "a3", text: `${onboardResult.graph.tech.length} technologies detected`, state: "complete" },
-      { id: "a4", text: "Ready — explore the graph, chat, or run a scan", state: "active" },
     ]
-  }, [onboardResult])
+    if (jobProgress?.status === "done") {
+      items.push({ id: "a4", text: "Ready — explore the graph, chat, or run a scan", state: "complete" })
+    } else {
+      items.push({ id: "a4", text: "Ready — explore the graph, chat, or run a scan", state: "active" })
+    }
+    return items
+  }, [onboardResult, jobProgress])
 
   if (activity.length === 0) return null
 
@@ -66,7 +89,7 @@ function ActivityBar() {
             <span
               className={
                 a.state === "warning"
-                  ? "text-sev-high truncate"
+                  ? "text-orange-500 truncate"
                   : a.state === "active"
                     ? "text-foreground truncate"
                     : "text-muted-foreground truncate"
@@ -84,8 +107,9 @@ function ActivityBar() {
 export function TopBar() {
   const { onboardResult } = useCodeAtlas()
 
-  const repoShort = onboardResult?.sessionId
-    ? onboardResult.sessionId.replace(/^https?:\/\/github\.com\//, "")
+  const sessionId = onboardResult?.sessionId ?? null
+  const repoShort = sessionId
+    ? sessionId.replace(/^https?:\/\/github\.com\//, "")
     : null
 
   return (
@@ -93,25 +117,30 @@ export function TopBar() {
       {/* main nav */}
       <div className="flex h-14 items-center justify-between border-b border-border px-4 sm:px-6">
         <div className="flex items-center gap-2.5">
-          <span className="flex size-7 items-center justify-center rounded-lg bg-primary/12 text-primary">
+          <span className="flex size-7 items-center justify-center rounded-lg bg-indigo-500/12 text-indigo-500">
             <CompassLogo className="size-4" />
           </span>
           <span className="font-heading text-[15px] font-semibold tracking-tight">
-            Code<span className="text-primary">Atlas</span>
+            Code<span className="text-indigo-500">Atlas</span>
           </span>
           {repoShort && (
-            <span className="ml-2 hidden items-center gap-1.5 rounded-md border border-border bg-card px-2 py-1 font-mono text-xs text-muted-foreground sm:flex">
+            <motion.span
+              initial={{ opacity: 0, x: -8 }}
+              animate={{ opacity: 1, x: 0 }}
+              className="ml-2 hidden items-center gap-1.5 rounded-md border border-border bg-card px-2 py-1 font-mono text-xs text-muted-foreground sm:flex"
+            >
               <FolderGit2 className="size-3" />
               {repoShort}
-            </span>
+            </motion.span>
           )}
         </div>
         <div className="flex items-center gap-2">
           {repoShort && (
             <>
+              <GitHubConnect repoUrl={sessionId!} />
               <a
                 href="/"
-                className="hidden items-center gap-1 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground md:flex"
+                className="hidden items-center gap-1 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:border-emerald-500/40 hover:text-emerald-500 md:flex"
               >
                 <svg className="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
                 Onboard Another Repo
@@ -122,11 +151,11 @@ export function TopBar() {
               </span>
             </>
           )}
-          <div className="size-7 rounded-full bg-gradient-to-br from-primary/70 to-primary/30 ring-2 ring-background" />
+          <div className="size-7 rounded-full bg-gradient-to-br from-indigo-500/70 to-emerald-500/30 ring-2 ring-background" />
         </div>
       </div>
 
-      {/* slim agent activity bar — only when a repo is loaded */}
+      {/* agent activity bar */}
       <ActivityBar />
     </header>
   )

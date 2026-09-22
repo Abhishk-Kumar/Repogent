@@ -1,16 +1,18 @@
 "use client"
 
 import { AnimatePresence, motion } from "motion/react"
-import { FileSearch, MessagesSquare, ScrollText } from "lucide-react"
+import { FileSearch, MessagesSquare, ScrollText, Activity } from "lucide-react"
 import { useState } from "react"
 import { ChatTab } from "./chat-tab"
 import { ScanTab } from "./scan-tab"
 import { ExplainTab } from "./explain-tab"
+import { HistoryTab } from "./history-tab"
 
 const TABS = [
   { id: "chat", label: "Chat", icon: MessagesSquare },
   { id: "scan", label: "Scan Report", icon: FileSearch },
   { id: "explain", label: "Explain Repo", icon: ScrollText },
+  { id: "history", label: "History", icon: Activity },
 ] as const
 
 type TabId = (typeof TABS)[number]["id"]
@@ -65,6 +67,7 @@ export function RightPanel() {
             {tab === "chat" && <ChatTab />}
             {tab === "scan" && <ScanTab />}
             {tab === "explain" && <ExplainTab />}
+            {tab === "history" && <HistoryTab />}
           </motion.div>
         </AnimatePresence>
       </div>
