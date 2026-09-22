@@ -1,0 +1,16 @@
+
+> my-project@0.1.0 dev
+> next dev --webpack
+
+▲ Next.js 16.2.6 (webpack)
+- Local:         http://localhost:3000
+- Network:       http://10.175.128.11:3000
+- Environments: .env.local
+✓ Ready in 295ms
+⚠ Attempted to load /Users/abhishek/DevWorks/CodeOnboardingAgent/frontend/node_modules/next/next-swc-fallback/@next/swc-darwin-arm64/next-swc.darwin-arm64.node, but it was not installed
+⚠ Attempted to load @next/swc-darwin-arm64, but it was not installed
+  Skipping creating a lockfile at /Users/abhishek/DevWorks/CodeOnboardingAgent/frontend/.next/dev/lock because we're using WASM bindings
+
+○ Compiling / ...
+ GET / 200 in 6.8s (next.js: 6.6s, application-code: 243ms)
+[?25h

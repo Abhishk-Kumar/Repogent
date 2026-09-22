@@ -1,4 +1,7 @@
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def _get_language_map():
@@ -7,10 +10,8 @@ def _get_language_map():
         ".py": Language.PYTHON,
         ".js": Language.JS,
         ".jsx": Language.JS,
-        ".java": Language.JAVA,
         ".tsx": Language.TS,
         ".ts": Language.TS,
-        ".go": Language.GO
     }
 
 Chunk_Size=1000
@@ -37,10 +38,10 @@ def get_splitter(filepath:str):
 def chunk_file(filepath: str, repo_root:str):
     from langchain_core.documents import Document
     try:
-        with open(filepath, "r", encoding="utf-8", errors="ignore")as f:
-            content=f.read()
-            f.close()
-    except(OSError, UnicodeDecodeError):
+        with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
+            content = f.read()
+    except (OSError, UnicodeDecodeError) as e:
+        logger.warning("Failed to read file for chunking %s: %s", filepath, e)
         return []
     
     if not content.strip():

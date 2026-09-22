@@ -6,6 +6,7 @@ class RepoMetaData(BaseModel):
     local_path: str
     file_count: int
     languages_detected: list[str] = []
+    unsupported_files: list[str] = []
 
 
 class GraphNode(BaseModel):

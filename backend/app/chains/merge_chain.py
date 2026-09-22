@@ -11,7 +11,7 @@ from app.chains.flow_trace_chain import generate_flow_trace, find_flow_starting_
 logger = logging.getLogger(__name__)
 
 
-def assemble_full_report(
+async def assemble_full_report(
     repo_root: str,
     file_list: list[str],
     goal: str | None = None,
@@ -26,7 +26,7 @@ def assemble_full_report(
     logger.info("Graph built in %.3fs", timing["graph_build"])
 
     t0 = time.time()
-    graph["nodes"] = generate_node_labels(graph["nodes"])
+    graph["nodes"] = await generate_node_labels(graph["nodes"])
     timing["node_labels"] = round(time.time() - t0, 3)
 
     dep_graph = DependencyGraph(**graph)
@@ -34,7 +34,7 @@ def assemble_full_report(
     start_here = None
     if goal:
         t0 = time.time()
-        sh_result = generate_start_here(graph, goal)
+        sh_result = await generate_start_here(graph, goal)
         from app.models.schemas import StartHereResult
         start_here = StartHereResult(**sh_result)
         timing["start_here"] = round(time.time() - t0, 3)
@@ -42,7 +42,7 @@ def assemble_full_report(
     flow_trace = None
     if flow_start:
         t0 = time.time()
-        flow_result = generate_flow_trace(flow_start, graph, repo_root)
+        flow_result = await generate_flow_trace(flow_start, graph, repo_root)
         from app.models.schemas import FlowTrace
         flow_trace = FlowTrace(**flow_result)
         timing["flow_trace"] = round(time.time() - t0, 3)

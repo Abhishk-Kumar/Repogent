@@ -1,0 +1,15 @@
+INFO:     Started server process [37133]
+INFO:     Waiting for application startup.
+2026-09-20 08:52:40,225 [INFO] app.db: Database initialized at /Users/abhishek/DevWorks/CodeOnboardingAgent/backend/data/codeatlas.db
+2026-09-20 08:52:40,231 [INFO] app.main: Starting Codebase Onboarding Agent v3...
+2026-09-20 08:52:40,231 [INFO] app.main: Embedding model: sentence-transformers/all-MiniLM-L6-v2
+2026-09-20 08:52:40,231 [INFO] app.main: Vector store path: data/chroma_db
+2026-09-20 08:52:40,231 [INFO] app.main: DB path: data/codeatlas.db
+2026-09-20 08:52:40,231 [INFO] app.main: Server ready
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:62289 - "GET /health HTTP/1.1" 200 OK
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [37133]
