@@ -119,7 +119,17 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 This project includes a `render.yaml` for infrastructure-as-code deployment to Render as a **single web service** (FastAPI serves the API + the built frontend on one domain).
 
-> **Cost note:** the service uses a persistent disk for ChromaDB/SQLite/cloned repos, and disks require a paid instance. `render.yaml` uses `0.5c-512mb` (Starter, ~$7/mo). The free plan cannot attach a disk, so it is not supported for this app.
+> **Cost note:** the service uses a persistent disk for ChromaDB/SQLite/cloned repos, and disks require a paid instance. `render.yaml` uses `0.5c-512mb` (Starter, ~$7/mo prorated by the second).
+
+#### Option 0: Free tier (testing only, $0)
+
+The repo also includes `render.free.yaml` — same app, no disk, `plan: free`. Trade-offs:
+
+- All sessions, scan history and vector stores are **wiped on every restart/redeploy**
+- The service **sleeps after 15 min idle** (slow cold start; a sleep mid-onboarding can kill the job)
+- 0.1 CPU / 512 MB RAM — large repos may run out of memory
+
+To use it: Dashboard → **New → Blueprint** → select your repo → change the Render YAML path from `render.yaml` to `render.free.yaml` → enter `GROQ_API_KEY` when prompted → Apply. Good enough to check the UI and onboard a small repo; use `render.yaml` for real use.
 
 #### Option 1: Using render.yaml (Recommended)
 
