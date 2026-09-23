@@ -1,0 +1,44 @@
+services:
+  - type: web
+    name: codeatlas
+    runtime: python
+    region: oregon
+    # 0.5c-512mb = Starter tier (paid). A paid plan is REQUIRED because the
+    # service has a persistent disk (free plans can't attach disks).
+    # If onboarding large repos OOMs, bump to 1c-2g.
+    plan: 0.5c-512mb
+    healthCheckPath: /health
+    buildCommand: |
+      # Render's Python image does not include Node, so install it for the frontend build
+      curl -fsSL https://nodejs.org/dist/v20.18.0/node-v20.18.0-linux-x64.tar.xz -o /tmp/node.tar.xz
+      mkdir -p /tmp/nodejs && tar -xJf /tmp/node.tar.xz -C /tmp/nodejs --strip-components=1
+      export PATH=/tmp/nodejs/bin:$PATH
+      node --version && npm --version
+      # Build the Next.js static export into backend/static (served by FastAPI)
+      cd frontend && npm ci && npm run build:static
+      # Backend deps via uv (uv.lock lives in backend/)
+      cd ../backend && pip install uv && uv sync --frozen
+    startCommand: cd backend && uv run uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      # Must be fully qualified (Render rejects bare "3.12"/"3.14")
+      - key: PYTHON_VERSION
+        value: 3.14.3
+      - key: GROQ_API_KEY
+        sync: false
+      - key: MISTRAL_API_KEY
+        sync: false
+      # NOTE: NEXT_PUBLIC_API_BASE_URL is intentionally NOT set.
+      # The frontend falls back to window.location.origin, which is correct
+      # because the single service serves both API and frontend on one domain.
+      # (A fromService hostport value would be wrong here: it's the private
+      # network host:port, and it's baked in at build time.)
+      - key: VECTOR_STORE_PATH
+        value: /opt/render/project/src/backend/data/chroma_db
+      - key: CLONE_TEMP_DIR
+        value: /opt/render/project/src/backend/data/repos
+      - key: DB_PATH
+        value: /opt/render/project/src/backend/data/codeatlas.db
+    disk:
+      name: codeatlas-data
+      mountPath: /opt/render/project/src/backend/data
+      sizeGB: 1
