@@ -2,7 +2,9 @@ services:
   - type: web
     name: codeatlas-free
     runtime: python
-    region: oregon
+    # Singapore = lowest latency from India. (Region can't be changed after
+    # the service is created; pricing is the same in every region.)
+    region: singapore
     # Free tier: $0, but with trade-offs (see README):
     # - NO persistent disk: ChromaDB, SQLite history and cloned repos are
     #   wiped on every restart/redeploy.

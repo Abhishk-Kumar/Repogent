@@ -2,7 +2,9 @@ services:
   - type: web
     name: codeatlas
     runtime: python
-    region: oregon
+    # Singapore = lowest latency from India. (Region can't be changed after
+    # the service is created; pricing is the same in every region.)
+    region: singapore
     # 0.5c-512mb = Starter tier (paid). A paid plan is REQUIRED because the
     # service has a persistent disk (free plans can't attach disks).
     # If onboarding large repos OOMs, bump to 1c-2g.
