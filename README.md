@@ -117,31 +117,29 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 ### Deploy to Render
 
-This project includes a `render.yaml` for infrastructure-as-code deployment to Render as a **single web service** (FastAPI serves the API + the built frontend on one domain).
+This project deploys to Render as a **single web service** (FastAPI serves the API + the built frontend on one domain). Two Blueprint files are included:
 
-> **Cost note:** the service uses a persistent disk for ChromaDB/SQLite/cloned repos, and disks require a paid instance. `render.yaml` uses `0.5c-512mb` (Starter, ~$7/mo prorated by the second).
+- `render.yaml` — **free tier** (`plan: free`, no disk, $0, no card required). Data is ephemeral and the service sleeps when idle. Good for testing and small repos.
+- `render.paid.yaml` — Starter `0.5c-512mb` (~$7/mo prorated by the second) + 1 GB persistent disk. For real use.
 
-#### Option 0: Free tier (testing only, $0)
+#### Option 1: Free deploy via Blueprint (no card needed)
 
-The repo also includes `render.free.yaml` — same app, no disk, `plan: free`. Trade-offs:
-
-- All sessions, scan history and vector stores are **wiped on every restart/redeploy**
-- The service **sleeps after 15 min idle** (slow cold start; a sleep mid-onboarding can kill the job)
-- 0.1 CPU / 512 MB RAM — large repos may run out of memory
-
-To use it: Dashboard → **New → Blueprint** → select your repo → change the Render YAML path from `render.yaml` to `render.free.yaml` → enter `GROQ_API_KEY` when prompted → Apply. Good enough to check the UI and onboard a small repo; use `render.yaml` for real use.
-
-#### Option 1: Using render.yaml (Recommended)
-
-1. **Commit and push** - `render.yaml` must be on your repo's default branch (`git add render.yaml`, commit, push to GitHub)
-2. **New Blueprint** - Go to [Render Dashboard](https://dashboard.render.com) → **New → Blueprint**, select your repo. Render detects `render.yaml` and shows the `codeatlas` service.
-3. **Enter secrets** - Blueprint prompts for (because they are `sync: false`):
+1. **New Blueprint** - Go to [Render Dashboard](https://dashboard.render.com) → **New → Blueprint**, select your repo. Render detects `render.yaml` (the free one) and shows the `codeatlas` service.
+2. **Enter secrets** - Blueprint prompts for (because they are `sync: false`):
    - `GROQ_API_KEY` (required — get one free at https://console.groq.com/)
    - `MISTRAL_API_KEY` (optional fallback — https://console.mistral.ai/)
-4. **Apply** - Render provisions the service + 1 GB disk, builds (frontend static export → `backend/static/`, then `uv sync --frozen`), and starts `uvicorn` on `$PORT`.
-5. **Verify** - Open `https://<your-service>.onrender.com/health` (should return `{"status":"ok"}`), then open the root URL and onboard a repo.
+3. **Apply** - No payment prompt appears because the Blueprint contains only free resources. Render builds (frontend static export → `backend/static/`, then `uv sync --frozen`) and starts `uvicorn` on `$PORT`.
+4. **Verify** - Open `https://<your-service>.onrender.com/health` (should return `{"status":"ok"}`), then open the root URL and onboard a repo.
 
-#### Option 2: Manual Web Service Setup
+> Free-tier trade-offs: sessions, scan history and vector stores are **wiped on every restart/redeploy**; the service **sleeps after 15 min idle** (slow cold start, and a sleep mid-onboarding can kill the job); 0.1 CPU / 512 MB RAM may OOM on large repos.
+>
+> If you previously created a Blueprint when `render.yaml` was the paid file and got stuck at the card prompt: delete that Blueprint/service in the dashboard and create a fresh one — it will now read the free file.
+
+#### Option 2: Paid deploy via Blueprint (persistent data)
+
+Same flow as Option 1, but change the Render YAML path from `render.yaml` to `render.paid.yaml`. This provisions the service **plus a 1 GB disk** and requires a card (Starter plan; the disk can't attach to free plans).
+
+#### Option 3: Manual Web Service Setup
 
 1. Create a new **Web Service** on Render, connect your GitHub repo (leave **Root Directory** blank = repo root).
 2. Configure:
