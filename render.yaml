@@ -32,6 +32,14 @@ services:
         sync: false
       - key: MISTRAL_API_KEY
         sync: false
+      # Canonical public URL: baked into SEO tags + sitemap at build time.
+      - key: NEXT_PUBLIC_SITE_URL
+        value: https://repogent.onrender.com
+      # Cross-origin mutating-call guard (see backend/app/security.py).
+      # Generated once; safe to rotate (only browser abuse-callers need it).
+      - key: DEPLOY_SECRET
+        generateValue: true
+        sync: false
       # NOTE: data paths intentionally left at app defaults (data/...)
       # so everything stays on the ephemeral filesystem.
       # NOTE: NEXT_PUBLIC_API_BASE_URL is intentionally NOT set.

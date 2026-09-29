@@ -18,6 +18,15 @@ class Settings(BaseSettings):
     github_webhook_secret: str = ""
 
     job_hard_timeout_seconds: int = 300
+    # Deploy guard (see app/security.py). Unset => fail-open local dev.
+    deploy_secret: str = ""
+    # Canonical public URL. Drives CORS-adjacent origin checks and SEO
+    # (sitemap/OG/canonicals) — defaults to the Render deployment.
+    site_url: str = "https://repogent.onrender.com"
+    ask_rate_limit_per_min: int = 20
+    # Groq production flagship (llama-3.3-70b-versatile retired 2026-08-16).
+    # Override with CHAT_MODEL_ID env var.
+    chat_model_id: str = "openai/gpt-oss-120b"
 
     class Config:
         env_file = ".env"

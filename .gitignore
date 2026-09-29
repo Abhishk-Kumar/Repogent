@@ -21,3 +21,20 @@ backend/static/
 
 # OS
 .DS_Store
+
+# 10.3 — pack process docs, baselines, sweep notes (never ship these)
+codeatlas-transform/
+.pack-baselines/
+BLOCKERS.md
+
+# Secret-holding files (API keys, MCP client configs with keys — e.g. Cursor
+# mcp.json / Claude Code config containing a CodeAtlas API key)
+opencode.json
+.opencode/
+mcp.json
+claude_code_config.json
+backend/.env
+backend/backend.log
+*.log
+*.pem
+*.key

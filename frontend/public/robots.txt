@@ -1,0 +1,12 @@
+# robots.txt for CodeAtlas (generated — do not hand-edit)
+User-agent: *
+Allow: /
+
+# Sitemap
+Sitemap: https://repogent.onrender.com/sitemap.xml
+
+# Disallow workspace (thin auto-generated pages)
+Disallow: /workspace
+Disallow: /github/callback
+Disallow: /_next/
+Disallow: /api/

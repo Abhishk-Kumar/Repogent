@@ -12,7 +12,7 @@ function scrollToInput() {
   }
 }
 
-export function SiteFooter({ onOnboard }: { onOnboard: (repo: string) => void }) {
+export function SiteFooter({ onOnboard }: { onOnboard?: (repo: string) => void }) {
   return (
     <footer className="relative">
       {/* final CTA */}
@@ -50,15 +50,36 @@ export function SiteFooter({ onOnboard }: { onOnboard: (repo: string) => void })
           © {new Date().getFullYear()} CodeAtlas. Built for engineers who hate
           guessing.
         </p>
-        <nav className="flex gap-6 text-xs text-muted-foreground">
-          <a href="#features" className="transition-colors hover:text-foreground">
-            Features
+        <nav className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
+          <a href="/demo" className="transition-colors hover:text-foreground">
+            Demo
           </a>
-          <a href="#preview" className="transition-colors hover:text-foreground">
-            Preview
+          <a href="/pricing" className="transition-colors hover:text-foreground">
+            Pricing
+          </a>
+          <a href="/docs" className="transition-colors hover:text-foreground">
+            Docs
+          </a>
+          <a href="/blog" className="transition-colors hover:text-foreground">
+            Blog
+          </a>
+          <a href="/about" className="transition-colors hover:text-foreground">
+            About
+          </a>
+          <a href="/changelog" className="transition-colors hover:text-foreground">
+            Changelog
+          </a>
+          <a href="/vs/deepwiki" className="transition-colors hover:text-foreground">
+            vs DeepWiki
+          </a>
+          <a href="/privacy" className="transition-colors hover:text-foreground">
+            Privacy
+          </a>
+          <a href="/terms" className="transition-colors hover:text-foreground">
+            Terms
           </a>
           <a
-            href="https://github.com"
+            href="https://github.com/Abhishk-Kumar/Repogent"
             target="_blank"
             rel="noreferrer"
             className="transition-colors hover:text-foreground"

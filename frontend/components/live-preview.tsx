@@ -1,6 +1,6 @@
 "use client"
 
-import { motion } from "framer-motion"
+import { motion } from "motion/react"
 import { Reveal } from "@/components/reveal"
 import { Circle, MessageSquare, ShieldCheck } from "lucide-react"
 

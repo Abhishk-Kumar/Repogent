@@ -1,11 +1,18 @@
 import type {
+  ApiKeyCreateResponse,
+  ApiKeyListItem,
   ChatMessage,
   ExplainPoint,
+  JiraStatus,
   RepoEdge,
   RepoFileNode,
   RepoGraph,
   ScanReport,
+  SlackChannel,
+  SlackShareFinding,
+  SlackStatus,
   TechBadge,
+  Ticket,
   JobStatus,
 } from "./types"
 
@@ -219,6 +226,8 @@ function mapBackendGraphToFrontend(data: {
     purpose: string
   }[]
   edges: { id: string; source: string; target: string }[]
+  unresolved_imports?: number
+  unparsed_files?: string[]
 }): RepoGraph {
   const depsList: { id: string; deps: string[] }[] = data.nodes.map((n) => {
     const myDeps = data.edges
@@ -244,6 +253,8 @@ function mapBackendGraphToFrontend(data: {
     })),
     edges: data.edges,
     tech,
+    unresolvedImports: data.unresolved_imports ?? 0,
+    unparsedFiles: data.unparsed_files ?? [],
   }
 }
 
@@ -280,6 +291,8 @@ export async function startPollingJob(
           dependency_graph: {
             nodes: { id: string; label: string; folder: string; language: string; functions: string[]; classes: string[]; purpose: string }[]
             edges: { id: string; source: string; target: string }[]
+            unresolved_imports?: number
+            unparsed_files?: string[]
           }
           sources: string[]
         }
@@ -317,6 +330,8 @@ export async function fetchRepoGraph(sessionId: string): Promise<RepoGraph> {
     edges: { id: string; source: string; target: string }[]
     isolated_files: string[]
     routes: { file: string; method: string; path: string }[]
+    unresolved_imports?: number
+    unparsed_files?: string[]
   }>("/graph", { session_id: sessionId })
   return mapBackendGraphToFrontend(data)
 }
@@ -343,14 +358,142 @@ export async function fetchExplain(
   return data.points
 }
 
+export async function listTickets(repoUrl: string): Promise<Ticket[]> {
+  const data = await get<unknown>(`/tickets?repo=${encodeURIComponent(repoUrl)}`)
+  return Array.isArray(data) ? (data as Ticket[]) : []
+}
+
+export async function createTicket(input: {
+  repo: string
+  title: string
+  description: string
+  severity: string
+  source_finding_id: string
+}): Promise<Ticket> {
+  return post<Ticket>("/tickets", input)
+}
+
+export async function createTicketsBulk(input: {
+  repo: string
+  issues: { title: string; description: string; severity: string; source_finding_id: string }[]
+}): Promise<{ created: Ticket[]; skipped: { source_finding_id: string; reason: string }[]; count: number }> {
+  return post("/tickets/bulk", input)
+}
+
+export async function deleteTicket(id: number): Promise<void> {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT)
+  try {
+    const res = await fetch(`${BASE}/tickets/${id}`, {
+      method: "DELETE",
+      signal: controller.signal,
+    })
+    if (!res.ok) {
+      const text = await res.text().catch(() => "")
+      throw new Error(`DELETE /tickets/${id} ${res.status}: ${text}`)
+    }
+  } finally {
+    clearTimeout(timeoutId)
+  }
+}
+
+export async function pushTicketToJira(id: number): Promise<{ ok?: boolean; issue_key?: string; issue_url?: string; error?: string; detail?: string }> {
+  return post(`/tickets/${id}/push-jira`, {})
+}
+
+export async function fetchJiraStatus(): Promise<JiraStatus> {
+  return get<JiraStatus>("/integrations/jira/status")
+}
+
+export async function fetchJiraConnect(): Promise<{ auth_url?: string; error?: string; detail?: string }> {
+  return get("/integrations/jira/connect")
+}
+
+export async function disconnectJira(): Promise<void> {
+  await post("/integrations/jira/disconnect", {})
+}
+
+// ── File 06: Slack sharing + notifications (no bot commands) ──
+
+export async function fetchSlackStatus(): Promise<SlackStatus> {
+  return get<SlackStatus>("/integrations/slack/status")
+}
+
+export async function fetchSlackConnect(): Promise<{ auth_url?: string; error?: string; detail?: string }> {
+  return get("/integrations/slack/connect")
+}
+
+export async function disconnectSlack(): Promise<void> {
+  await post("/integrations/slack/disconnect", {})
+}
+
+export async function fetchSlackChannels(): Promise<{ channels?: SlackChannel[]; error?: string; detail?: string }> {
+  return get("/integrations/slack/channels")
+}
+
+export async function shareScanToSlack(input: {
+  repo: string
+  channel: string
+  health_score: number
+  grade: string
+  findings: SlackShareFinding[]
+  report_url?: string
+}): Promise<{ ok?: boolean; error?: string; detail?: string }> {
+  return post("/integrations/slack/share", input)
+}
+
+export async function saveSlackWebhook(webhook_url: string): Promise<{ ok?: boolean; error?: string; detail?: string }> {
+  return post("/integrations/slack/webhook", { webhook_url })
+}
+
+export async function shareScanViaWebhook(input: {
+  repo: string
+  health_score: number
+  grade: string
+  findings: SlackShareFinding[]
+  report_url?: string
+  webhook_url?: string
+}): Promise<{ ok?: boolean; error?: string; detail?: string }> {
+  return post("/integrations/slack/share-webhook", input)
+}
+
+export async function setSlackNotify(enabled: boolean): Promise<{ ok?: boolean; notify_on_complete?: boolean; error?: string; detail?: string }> {
+  return post("/integrations/slack/notify", { enabled })
+}
+
 export async function sendChatMessage(
   sessionId: string,
   _history: ChatMessage[],
   message: string,
+  signal?: AbortSignal
 ): Promise<string> {
-  const data = await post<{ answer: string }>("/ask", {
+  const data = await post<{ answer?: string; error?: string }>("/ask", {
     session_id: sessionId,
     question: message,
-  })
+  }, signal)
+  // Error boundary contract: backend returns { error: "chat_unavailable" }
+  // instead of raw provider payload. Surface as a typed error for the UI.
+  if (data.error || typeof data.answer !== "string") {
+    throw new Error(data.error || "chat_unavailable")
+  }
   return data.answer
+}
+
+// ── File 09: MCP API key management ──
+
+export async function createApiKey(
+  repoIdentifier: string,
+  name: string
+): Promise<ApiKeyCreateResponse> {
+  return post("/api-keys", { repo_identifier: repoIdentifier, name })
+}
+
+export async function listApiKeys(
+  repoIdentifier: string
+): Promise<ApiKeyListItem[]> {
+  return get(`/api-keys?repo_identifier=${encodeURIComponent(repoIdentifier)}`)
+}
+
+export async function revokeApiKey(prefix: string): Promise<{ ok: boolean; revoked_at: string }> {
+  return post("/api-keys/revoke", { prefix })
 }

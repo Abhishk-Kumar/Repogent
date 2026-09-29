@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react"
 
-export function ParticleBackground() {
+export function ParticleBackground({ className }: { className?: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
@@ -101,7 +101,7 @@ export function ParticleBackground() {
   return (
     <canvas
       ref={canvasRef}
-      className="pointer-events-none fixed inset-0 z-0"
+      className={`pointer-events-none fixed inset-0 z-0 ${className ?? ""}`}
       style={{ opacity: 0.6 }}
     />
   )

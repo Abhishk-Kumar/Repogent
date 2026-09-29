@@ -5,12 +5,30 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# 05.1 diagnosis (kept here per pack: answer in a code comment):
+# - Parser: hand-rolled regex (this file), NOT dependency-cruiser/babel.
+#   Chosen fix: extend the regex+resolver in place (stdlib only, no node
+#   dependency, keeps analysis under the ~35s budget) instead of adding
+#   dependency-cruiser. Documented trade-off: regex can't see through
+#   re-export barrels beyond index.* (logged as unresolved).
+# - Relative imports: YES (./ and ../ resolved via _try_extension).
+# - Barrel files (index.ts re-exports): YES (dir + index.* fallback).
+# - tsconfig paths aliases: YES (_load_tsconfig_paths + _resolve_with_paths).
+# - Extensionless imports: YES (append .js/.jsx/.ts/.tsx/.mjs/.cjs).
+# - Explicit `.js`-suffixed TS imports (Node16 style, e.g. sindresorhus/is):
+#   FIXED 05.2 — previously _try_extension appended another extension
+#   (`./assert.js` -> `./assert.js.js`) so EVERY such import was dropped,
+#   the most damaging visual bug (0 edges). Now: exact-file check first,
+#   then .js->.ts/.tsx swap.
+# - CommonJS require: YES incl. destructured (`const {x} = require(...)`) —
+#   FIXED 05.2 (old patterns required a bare identifier).
+# - Dynamic import(): YES. Side-effect `import "./x"`: YES — FIXED 05.2
+#   (old patterns required `from`).
 IMPORT_PATTERNS = [
     re.compile(r'import\s+[\s\S]*?\s+from\s+["\'](.+?)["\']'),
-    re.compile(r'const\s+\w+\s*=\s*require\(["\'](.+?)["\']\)'),
-    re.compile(r'let\s+\w+\s*=\s*require\(["\'](.+?)["\']\)'),
-    re.compile(r'var\s+\w+\s*=\s*require\(["\'](.+?)["\']\)'),
-    re.compile(r'import\(["\'](.+?)["\']\)'),
+    re.compile(r'import\s*\(\s*["\'](.+?)["\']\s*\)'),
+    re.compile(r'import\s+["\'](.+?)["\']\s*;?'),
+    re.compile(r'(?:const|let|var)\s+[^=;]+?=\s*require\(["\'](.+?)["\']\)'),
     re.compile(r'export\s+\{[\s\S]*?\}\s+from\s+["\'](.+?)["\']'),
     re.compile(r'export\s+\*\s+from\s+["\'](.+?)["\']'),
 ]
@@ -66,10 +84,23 @@ def _normalize_relative(module_spec: str, file_dir: str) -> str:
 
 
 def _try_extension(base_path: str) -> str | None:
+    # 1. Exact path first — handles explicit extensions incl. Node16-style
+    #    TS imports (`./assert.js` where assert.ts/js exists on disk).
+    if os.path.isfile(base_path):
+        return base_path
+    # 2. TS Node16 style: `./foo.js` -> `./foo.ts` / `./foo.tsx`.
+    if base_path.endswith(".js") or base_path.endswith(".mjs"):
+        stem = base_path[: -len(os.path.splitext(base_path)[1])]
+        for ext in (".ts", ".tsx", ".mts"):
+            candidate = stem + ext
+            if os.path.isfile(candidate):
+                return candidate
+    # 3. Extensionless: append candidate extensions.
     for ext in JS_EXTENSIONS:
         candidate = base_path + ext
         if os.path.isfile(candidate):
             return candidate
+    # 4. Barrel: directory + index.* re-export.
     if os.path.isdir(base_path):
         for ext in JS_EXTENSIONS:
             candidate = os.path.join(base_path, "index" + ext)
@@ -139,12 +170,23 @@ def _resolve_js_import(module_spec: str, file_path: str, repo_root: str, base_ur
     return {"source": module_spec, "resolved_path": None, "external": True}
 
 
-def parse_js_imports(file_path: str, repo_root: str) -> list[dict]:
+def parse_js_imports(
+    file_path: str, repo_root: str, stats: dict | None = None
+) -> list[dict]:
+    """Parse imports; optionally record diagnostics into stats dict.
+
+    stats["unparsed"] is set True when the file can't be read;
+    stats["unresolved"] counts relative/alias imports that failed to
+    resolve (05.2 — feeds the UI warning state, never fake zeros).
+    Bare external imports (npm packages) are NOT counted.
+    """
     try:
         with open(file_path, "r", encoding="utf-8", errors="replace") as f:
             content = f.read()
     except OSError as e:
         logger.warning("Failed to read JS/TS file %s: %s", file_path, e)
+        if stats is not None:
+            stats["unparsed"] = True
         return []
 
     base_url, paths = _load_tsconfig_paths(repo_root)
@@ -161,6 +203,10 @@ def parse_js_imports(file_path: str, repo_root: str) -> list[dict]:
             resolved = _resolve_js_import(module_spec, file_path, repo_root, base_url, paths)
             if resolved:
                 imports.append(resolved)
+            elif module_spec.startswith((".", "/", "@/", "~/")):
+                logger.info("Unresolved JS/TS import: %s in %s", module_spec, file_path)
+                if stats is not None:
+                    stats["unresolved"] = stats.get("unresolved", 0) + 1
 
     return imports
 

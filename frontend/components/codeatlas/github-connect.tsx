@@ -1,7 +1,8 @@
 "use client"
 
 import { useState } from "react"
-import { motion, AnimatePresence } from "framer-motion"
+import { motion, AnimatePresence } from "motion/react"
+import { toast } from "sonner"
 import { GitPullRequest, Check, Loader2 } from "lucide-react"
 
 const BASE = process.env.NEXT_PUBLIC_API_BASE_URL || (typeof window !== 'undefined' ? window.location.origin : "http://localhost:8000")
@@ -26,7 +27,7 @@ export function GitHubConnect({ repoUrl }: { repoUrl: string }) {
         window.open(installUrl, "_blank", "noopener,noreferrer")
       }
     } catch {
-      // ignore
+      toast.error("GitHub request failed. Is the backend running?")
     } finally {
       setLoading(false)
     }

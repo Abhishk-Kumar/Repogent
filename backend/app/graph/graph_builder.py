@@ -6,7 +6,7 @@ from app.graph.js_parser import parse_js_imports, find_express_routes
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED_EXTENSIONS = {".py", ".js", ".jsx", ".ts", ".tsx"}
+SUPPORTED_EXTENSIONS = {".py", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".mts"}
 
 IGNORE_DIRS = {".git", "node_modules", "__pycache__", "venv", ".venv", "dist", "build", ".next"}
 
@@ -20,7 +20,7 @@ def _classify_file(file_path: str) -> str:
     ext = os.path.splitext(file_path)[1].lower()
     if ext == ".py":
         return "python"
-    if ext in (".js", ".jsx", ".ts", ".tsx"):
+    if ext in (".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".mts"):
         return "js"
     return "other"
 
@@ -67,19 +67,28 @@ def build_dependency_graph(repo_root: str, file_list: list[str]) -> dict:
         file_index[rel_path] = node
 
     edge_id_counter = 0
+    # 05.2 diagnostics: distinguish "genuinely zero imports" from
+    # "couldn't resolve/parse" so the UI never shows fake zeros.
+    unresolved_imports = 0
+    unparsed_files: list[str] = []
     for fp in file_list:
         ext = os.path.splitext(fp)[1].lower()
         if ext not in SUPPORTED_EXTENSIONS:
             continue
 
         rel_path = os.path.relpath(fp, repo_root) if os.path.isabs(fp) else fp
+        stats: dict = {}
 
         if ext == ".py":
-            imports = parse_python_imports(fp, repo_root)
-        elif ext in (".js", ".jsx", ".ts", ".tsx"):
-            imports = parse_js_imports(fp, repo_root)
+            imports = parse_python_imports(fp, repo_root, stats)
+        elif ext in (".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".mts"):
+            imports = parse_js_imports(fp, repo_root, stats)
         else:
             imports = []
+
+        unresolved_imports += stats.get("unresolved", 0)
+        if stats.get("unparsed"):
+            unparsed_files.append(rel_path)
 
         for imp in imports:
             resolved = imp.get("resolved_path")
@@ -107,11 +116,15 @@ def build_dependency_graph(repo_root: str, file_list: list[str]) -> dict:
         "edges": edges,
         "isolated_files": isolated_files,
         "routes": routes,
+        "unresolved_imports": unresolved_imports,
+        "unparsed_files": unparsed_files,
     }
 
     logger.info(
-        "Graph built: %d nodes, %d edges, %d isolated, %d routes found",
+        "Graph built: %d nodes, %d edges, %d isolated, %d routes, "
+        "%d unresolved imports, %d unparsed files",
         len(nodes), len(edges), len(isolated_files), len(routes),
+        unresolved_imports, len(unparsed_files),
     )
 
     return result

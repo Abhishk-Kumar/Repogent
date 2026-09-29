@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { motion } from "framer-motion"
+import { motion } from "motion/react"
 import { Activity, TrendingUp, TrendingDown, Minus } from "lucide-react"
 import { useCodeAtlas } from "@/lib/codeatlas/context"
 
@@ -68,7 +68,7 @@ function TrendBadge({ current, previous }: { current: number; previous?: number 
 }
 
 export function HistoryTab() {
-  const { onboardResult } = useCodeAtlas()
+  const { onboardResult, scanHistoryVersion } = useCodeAtlas()
   const [history, setHistory] = useState<HistoryEntry[]>([])
   const repoUrl = onboardResult?.sessionId ?? ""
 
@@ -78,7 +78,7 @@ export function HistoryTab() {
       .then(r => r.json())
       .then(data => setHistory(Array.isArray(data) ? data : []))
       .catch(() => {})
-  }, [repoUrl])
+  }, [repoUrl, scanHistoryVersion])
 
   if (history.length === 0) {
     return (

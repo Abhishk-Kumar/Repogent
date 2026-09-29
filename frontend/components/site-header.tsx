@@ -1,14 +1,16 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { motion } from "framer-motion"
+import { motion } from "motion/react"
 import { GitBranch, Compass } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
 const NAV = [
-  { label: "Features", href: "#features" },
-  { label: "How it works", href: "#how-it-works" },
-  { label: "Preview", href: "#preview" },
+  { label: "Demo", href: "/demo" },
+  { label: "Pricing", href: "/pricing" },
+  { label: "Docs", href: "/docs" },
+  { label: "Blog", href: "/blog" },
+  { label: "About", href: "/about" },
 ]
 
 export function SiteHeader() {
@@ -62,15 +64,15 @@ export function SiteHeader() {
         </nav>
 
         <div className="flex items-center gap-2">
-          <a
-            href="https://github.com"
-            target="_blank"
-            rel="noreferrer"
-            className="hidden size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground sm:flex"
-            aria-label="GitHub repository"
-          >
-            <GitBranch className="size-5" />
-          </a>
+<a
+  href="https://github.com/Abhishk-Kumar/Repogent"
+  target="_blank"
+  rel="noreferrer"
+  className="hidden size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground sm:flex"
+  aria-label="GitHub repository"
+>
+  <GitBranch className="size-5" />
+</a>
           <Button
             onClick={scrollToTop}
             size="sm"

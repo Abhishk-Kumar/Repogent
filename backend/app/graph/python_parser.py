@@ -30,30 +30,56 @@ def _is_stdlib_or_third_party(module_name: str) -> bool:
     return False
 
 
+# 05.1 diagnosis (kept here per pack: answer in a code comment):
+# - Parser: stdlib `ast` (no new dependency — fast, keeps the ~35s budget).
+# - Relative imports (`from .`, `from ..pkg`): HONORED via node.level —
+#   FIXED 05.2. Previously level was ignored and single-dot imports only
+#   worked by accident (file_dir fallback); `from ..pkg import m` and
+#   `from . import sibling_pkg` could resolve to the wrong file.
+# - Barrel files (__init__.py re-exports): YES (pkg/__init__.py candidates).
+# - tsconfig paths: N/A (Python). Extensionless: N/A. CJS require /
+#   dynamic import(): N/A (Python has no dynamic-import syntax in scope;
+#   importlib.import_module strings are not resolved — logged as unresolved).
+# - Third-party vs internal: anything not in the STDLIB list is treated as
+#   *potentially* internal and probed on disk; misses are logged as
+#   unresolved (never fake edges).
 def _resolve_import(node: ast.Import | ast.ImportFrom, file_path: str, repo_root: str) -> list[dict]:
     resolved = []
     file_dir = os.path.dirname(os.path.abspath(file_path))
+
+    # Honor explicit relative-import level: base = file_dir ascended (level-1).
+    level = getattr(node, "level", 0) or 0
+    base_dir = file_dir
+    for _ in range(max(level - 1, 0)):
+        base_dir = os.path.dirname(base_dir)
 
     if isinstance(node, ast.Import):
         for alias in node.names:
             module = alias.name
             if _is_stdlib_or_third_party(module):
                 continue
-            resolved_module = _try_resolve(module, file_dir, repo_root)
+            resolved_module = _try_resolve(module, base_dir, repo_root)
             if resolved_module:
                 resolved.append(resolved_module)
     elif isinstance(node, ast.ImportFrom):
         module = node.module or ""
-        if _is_stdlib_or_third_party(module):
+        if level == 0 and _is_stdlib_or_third_party(module):
             return []
         for alias in node.names:
+            if alias.name == "*":
+                # `from x import *` — resolve the package/module itself.
+                if module:
+                    pkg_path = _try_resolve(module, base_dir, repo_root)
+                    if pkg_path:
+                        resolved.append(pkg_path)
+                continue
             name = alias.name
-            resolved_module = _try_resolve(f"{module}.{name}", file_dir, repo_root) if module else _try_resolve(name, file_dir, repo_root)
+            resolved_module = _try_resolve(f"{module}.{name}", base_dir, repo_root) if module else _try_resolve(name, base_dir, repo_root)
             if resolved_module:
                 resolved.append(resolved_module)
             else:
                 if module:
-                    pkg_path = _try_resolve(module, file_dir, repo_root)
+                    pkg_path = _try_resolve(module, base_dir, repo_root)
                     if pkg_path:
                         resolved.append(pkg_path)
 
@@ -94,18 +120,30 @@ def _try_resolve(module: str, file_dir: str, repo_root: str) -> dict | None:
     return None
 
 
-def parse_python_imports(file_path: str, repo_root: str) -> list[dict]:
+def parse_python_imports(
+    file_path: str, repo_root: str, stats: dict | None = None
+) -> list[dict]:
+    """Parse imports; optionally record diagnostics into stats dict.
+
+    stats["unparsed"] is set True when the file can't be read/parsed;
+    stats["unresolved"] counts candidate-internal imports that failed to
+    resolve (05.2 — feeds the UI warning state, never fake zeros).
+    """
     try:
         with open(file_path, "r", encoding="utf-8", errors="replace") as f:
             content = f.read()
     except OSError as e:
         logger.warning("Failed to read python file %s: %s", file_path, e)
+        if stats is not None:
+            stats["unparsed"] = True
         return []
 
     try:
         tree = ast.parse(content)
     except SyntaxError as e:
         logger.warning("Syntax error parsing %s: %s", file_path, e)
+        if stats is not None:
+            stats["unparsed"] = True
         return []
 
     imports = []
@@ -114,14 +152,22 @@ def parse_python_imports(file_path: str, repo_root: str) -> list[dict]:
             resolved = _resolve_import(node, file_path, repo_root)
             if not resolved:
                 # Check if this was a candidate internal import that failed
+                level = getattr(node, "level", 0) or 0
                 if isinstance(node, ast.Import):
                     for alias in node.names:
                         if not _is_stdlib_or_third_party(alias.name):
                             logger.info("Unresolved Python import: %s in %s", alias.name, file_path)
+                            if stats is not None:
+                                stats["unresolved"] = stats.get("unresolved", 0) + 1
                 elif isinstance(node, ast.ImportFrom):
                     mod = node.module or ""
-                    if mod and not _is_stdlib_or_third_party(mod):
-                        logger.info("Unresolved Python import: %s in %s", mod, file_path)
+                    if level > 0 or (mod and not _is_stdlib_or_third_party(mod)):
+                        logger.info(
+                            "Unresolved Python import: %s%s in %s",
+                            "." * level, mod, file_path,
+                        )
+                        if stats is not None:
+                            stats["unresolved"] = stats.get("unresolved", 0) + 1
             imports.extend(resolved)
 
     return imports

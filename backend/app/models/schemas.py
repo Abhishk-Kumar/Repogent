@@ -29,6 +29,9 @@ class DependencyGraph(BaseModel):
     edges: list[GraphEdge] = []
     isolated_files: list[str] = []
     routes: list[dict] = []
+    # 05.2: resolve-failure signals (default so old payloads still validate).
+    unresolved_imports: int = 0
+    unparsed_files: list[str] = []
 
 
 class BlastRadiusResult(BaseModel):

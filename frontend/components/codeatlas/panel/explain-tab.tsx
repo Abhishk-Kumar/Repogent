@@ -1,7 +1,7 @@
 "use client"
 
 import { motion } from "motion/react"
-import { AlertCircle, Boxes, Layers, Sparkles, Target } from "lucide-react"
+import { AlertCircle, Boxes, Layers, Sparkles, Target, Terminal } from "lucide-react"
 import { useEffect, useState } from "react"
 import { CompassLogo } from "../compass-logo"
 import { ExplainSkeleton } from "../skeletons"
@@ -14,7 +14,14 @@ const ICONS = {
   target: Target,
   boxes: Boxes,
   sparkles: Sparkles,
+  terminal: Terminal,
 } as const
+
+// Backend may send icon names outside the known set; never render undefined
+// (React error #130 unmounts the whole tab). Unknown icons fall back cleanly.
+function iconFor(name: string) {
+  return (ICONS as Record<string, (typeof ICONS)[keyof typeof ICONS] | undefined>)[name] ?? Sparkles
+}
 
 export function ExplainTab() {
   const [points, setPoints] = useState<ExplainPoint[] | null>(null)
@@ -57,7 +64,7 @@ export function ExplainTab() {
       </div>
       <div className="thin-scroll flex-1 space-y-3 overflow-y-auto p-4">
         {points.map((p, i) => {
-          const Icon = ICONS[p.icon]
+          const Icon = iconFor(p.icon)
           return (
             <motion.div
               key={p.id}

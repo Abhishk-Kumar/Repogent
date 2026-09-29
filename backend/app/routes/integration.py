@@ -29,6 +29,9 @@ class GraphResponse(BaseModel):
     edges: list[dict]
     isolated_files: list[str]
     routes: list[dict]
+    # 05.2: resolve-failure signals (defaults keep old payloads valid).
+    unresolved_imports: int = 0
+    unparsed_files: list[str] = []
 
 
 class ScanReportRequest(BaseModel):
@@ -107,6 +110,8 @@ async def get_graph(request: SessionRequest):
         edges=graph.get("edges", []),
         isolated_files=graph.get("isolated_files", []),
         routes=graph.get("routes", []),
+        unresolved_imports=graph.get("unresolved_imports", 0),
+        unparsed_files=graph.get("unparsed_files", []),
     )
 
 
@@ -146,11 +151,19 @@ def _generate_scan_report(session: dict) -> ScanReportResponse:
     else:
         doc_score = 55
 
+    # Context-aware metrics: skip Route clarity for non-web repos (no API routes)
+    if len(routes) == 0:
+        route_clarity_value = 0
+        route_clarity_hint = "N/A - no API routes detected"
+    else:
+        route_clarity_value = min(100, 60 + len(routes) * 5)
+        route_clarity_hint = f"{len(routes)} API routes defined"
+
     metrics = [
         HealthMetric(label="Complexity", value=complexity_score, hint=f"Avg. cyclomatic complexity across {total_files} files"),
         HealthMetric(label="Test coverage", value=test_coverage, hint=f"{test_files} test files found"),
         HealthMetric(label="Doc coverage", value=doc_score, hint=f"{doc_coverage} files with descriptions"),
-        HealthMetric(label="Route clarity", value=min(100, 60 + len(routes) * 5), hint=f"{len(routes)} API routes defined"),
+        HealthMetric(label="Route clarity", value=route_clarity_value, hint=route_clarity_hint),
     ]
 
     overall = int((complexity_score + test_coverage + doc_score) / 3)
@@ -225,18 +238,8 @@ def _generate_scan_report(session: dict) -> ScanReportResponse:
                         )
                     )
 
-    if not issues:
-        issues.append(
-            ScanIssue(
-                id="ok-1",
-                title="No critical issues detected",
-                severity="low",
-                file="N/A",
-                line=0,
-                detail="Automated scan did not find hard-coded credentials, eval/exec usage, or missing documentation.",
-                fix="Continue following security best practices.",
-            )
-        )
+    # Remove fake issue when no issues found; let frontend handle empty state
+    # (no issues list means "No issues found — nice.")
 
     improvements = []
     if test_files == 0:
@@ -249,23 +252,47 @@ def _generate_scan_report(session: dict) -> ScanReportResponse:
         improvements.append(FutureImprovement(id="imp-3", title="Add API documentation", detail=f"{len(routes)} route(s) detected. Consider OpenAPI/Swagger docs for your API endpoints."))
     if len(file_list) > 500:
         improvements.append(FutureImprovement(id="imp-4", title="Reduce codebase complexity", detail=f"{total_files} source files is large. Consider refactoring into smaller, focused modules."))
-    if not improvements:
-        improvements.append(FutureImprovement(id="imp-1", title="Looks clean", detail="No obvious improvement areas found in the automated scan."))
+    # Remove fake "Looks clean" improvement; if no real improvements, leave empty
 
-    grade = "A"
-    if overall < 30:
-        grade = "F"
-    elif overall < 45:
-        grade = "D"
-    elif overall < 60:
-        grade = "C"
-    elif overall < 78:
+    # Ensure that if score < 75, we have at least one concrete improvement area
+    if overall < 75 and len(improvements) == 0:
+        # Add a generic improvement based on the weakest area
+        if test_coverage < 60:
+            improvements.append(FutureImprovement(id="imp-generic", title="Add more tests", detail="Increase test coverage to improve reliability."))
+        elif doc_score < 60:
+            improvements.append(FutureImprovement(id="imp-generic", title="Improve documentation", detail="Add docstrings and comments to improve maintainability."))
+        elif complexity_score < 60:
+            improvements.append(FutureImprovement(id="imp-generic", title="Reduce complexity", detail="Refactor complex functions to improve readability."))
+        else:
+            # Fallback: suggest adding tests
+            improvements.append(FutureImprovement(id="imp-generic", title="Add more tests", detail="Increase test coverage to further improve reliability."))
+
+    # A-F grade mapping: A>=90, B>=80, C>=70, D>=60, F<60
+    if overall >= 90:
+        grade = "A"
+    elif overall >= 80:
         grade = "B"
+    elif overall >= 70:
+        grade = "C"
+    elif overall >= 60:
+        grade = "D"
+    else:
+        grade = "F"
+
+    # Update summary to mention concrete improvement areas if score < 75
+    base_summary = f"Analysis of {total_files} files with {len(routes)} API routes and {test_files} test files."
+    if overall < 75 and improvements:
+        # List up to 2 improvement titles in the summary
+        improvement_titles = [imp.title for imp in improvements[:2]]
+        if len(improvement_titles) == 1:
+            base_summary += f" Key area for improvement: {improvement_titles[0]}."
+        else:
+            base_summary += f" Key areas for improvement: {', '.join(improvement_titles[:-1])} and {improvement_titles[-1]}."
 
     return ScanReportResponse(
         grade=grade,
         score=overall,
-        summary=f"Analysis of {total_files} files with {len(routes)} API routes and {test_files} test files.",
+        summary=base_summary,
         metrics=metrics,
         issues=issues,
         improvements=improvements,
@@ -298,45 +325,51 @@ async def explain_repo(request: ExplainRepoRequest):
 
     graph = session.get("graph", {})
     nodes = graph.get("nodes", [])
-    languages = set(n.get("language", "") for n in nodes if n.get("language"))
-    routes = graph.get("routes", [])
     total = len(nodes)
 
-    lang_str = ", ".join(sorted(languages)) if languages else "Multiple languages"
-    route_files = len(set(r.get("file", "") for r in routes))
+    # Collect language distribution
+    lang_dist = {}
+    for node in nodes:
+        lang = node.get("language")
+        if lang:
+            lang_dist[lang] = lang_dist.get(lang, 0) + 1
+    lang_str = ", ".join(sorted(lang_dist.keys())) if lang_dist else "unknown"
 
-    points = [
-        ExplainPoint(
-            id="e1",
-            title="What it does",
-            icon="compass",
-            body=f"A repository with {total} source files primarily in {lang_str}. It contains {route_files} files defining API endpoints and follows a modular directory structure.",
-        ),
-        ExplainPoint(
-            id="e2",
-            title="How it's architected",
-            icon="layers",
-            body="The codebase is organized into folders by concern or layer. Python files handle server-side logic while JavaScript/TypeScript files manage client-side rendering. Data models, configuration, and utilities are separated into distinct directories.",
-        ),
-        ExplainPoint(
-            id="e3",
-            title="Problem it solves",
-            icon="target",
-            body=f"Built to solve a specific domain problem using {lang_str}. The {total}-file codebase balances business logic, data access, and presentation layers to deliver its functionality.",
-        ),
-        ExplainPoint(
-            id="e4",
-            title="Key technologies",
-            icon="boxes",
-            body=f"Uses {lang_str}. The dependency graph shows {len(graph.get('edges', []))} relationships between {total} files, indicating how modules interconnect.",
-        ),
-        ExplainPoint(
-            id="e5",
-            title="Notable patterns",
-            icon="sparkles",
-            body="Clean separation of concerns with distinct directories for different layers. Files are organized by function rather than by type, making the codebase navigable for new contributors.",
-        ),
-    ]
+    # Count route files (API endpoints)
+    routes = graph.get("routes", [])
+    route_files = len(set(r.get("file", "") for r in routes)) if routes else 0
+
+    # Count edges in dependency graph
+    edges = graph.get("edges", [])
+    edge_count = len(edges) if edges else 0
+
+    points = []
+
+    # Point 1: Overview
+    overview = f"The codebase consists of {total} source files."
+    if lang_dist:
+        overview += f" The primary language(s) are {lang_str}."
+    if route_files:
+        overview += f" It includes {route_files} files that define API endpoints."
+    points.append(ExplainPoint(id="e1", title="Overview", icon="compass", body=overview))
+
+    # Point 2: Dependencies
+    if edge_count > 0:
+        deps = f"The dependency graph shows {edge_count} relationships between {total} files, indicating how modules interconnect."
+    else:
+        deps = "No dependency relationships were detected in the analysis."
+    points.append(ExplainPoint(id="e2", title="Dependencies", icon="boxes", body=deps))
+
+    # Point 3: Language Details (if we have distribution)
+    if lang_dist:
+        lang_details = ", ".join([f"{count} {lang}" for lang, count in lang_dist.items()])
+        lang_body = f"Files are written in the following languages: {lang_details}."
+    else:
+        lang_body = "No language information was detected."
+    points.append(ExplainPoint(id="e3", title="Languages", icon="terminal", body=lang_body))
+
+    # Note: We do not have data for architecture, problem solved, or notable patterns.
+    # We avoid making false claims by not adding sections for which we lack data.
 
     return ExplainRepoResponse(points=points)
 

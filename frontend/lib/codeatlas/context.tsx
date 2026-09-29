@@ -1,6 +1,6 @@
 "use client"
 
-import { createContext, useContext, useMemo, useState } from "react"
+import { createContext, useCallback, useContext, useMemo, useState } from "react"
 import type { RepoGraph, ScanReport, ExplainPoint } from "./types"
 
 export interface OnboardResult {
@@ -26,6 +26,8 @@ interface CodeAtlasState {
   setExplainPoints: (r: ExplainPoint[]) => void
   jobProgress: JobProgress | null
   setJobProgress: (p: JobProgress | null) => void
+  scanHistoryVersion: number
+  incrementScanHistoryVersion: () => void
 }
 
 const CodeAtlasCtx = createContext<CodeAtlasState | null>(null)
@@ -35,11 +37,13 @@ const globalStore: {
   scanReport: ScanReport | null
   explainPoints: ExplainPoint[] | null
   jobProgress: JobProgress | null
+  scanHistoryVersion: number
 } = {
   onboardResult: null,
   scanReport: null,
   explainPoints: null,
   jobProgress: null,
+  scanHistoryVersion: 0,
 }
 
 export function CodeAtlasProvider({ children }: { children: React.ReactNode }) {
@@ -47,6 +51,13 @@ export function CodeAtlasProvider({ children }: { children: React.ReactNode }) {
   const [scanReport, setScanReportState] = useState<ScanReport | null>(globalStore.scanReport)
   const [explainPoints, setExplainPointsState] = useState<ExplainPoint[] | null>(globalStore.explainPoints)
   const [jobProgress, setJobProgressState] = useState<JobProgress | null>(globalStore.jobProgress)
+  const [scanHistoryVersion, setScanHistoryVersion] = useState<number>(globalStore.scanHistoryVersion)
+
+  const incrementScanHistoryVersion = useCallback(() => {
+    const next = globalStore.scanHistoryVersion + 1
+    globalStore.scanHistoryVersion = next
+    setScanHistoryVersion(next)
+  }, [])
 
   const value = useMemo(
     () => ({
@@ -70,8 +81,10 @@ export function CodeAtlasProvider({ children }: { children: React.ReactNode }) {
         globalStore.jobProgress = p
         setJobProgressState(p)
       },
+      scanHistoryVersion,
+      incrementScanHistoryVersion,
     }),
-    [onboardResult, scanReport, explainPoints, jobProgress],
+    [onboardResult, scanReport, explainPoints, jobProgress, scanHistoryVersion],
   )
 
   return <CodeAtlasCtx.Provider value={value}>{children}</CodeAtlasCtx.Provider>

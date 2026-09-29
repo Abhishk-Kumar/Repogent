@@ -30,7 +30,7 @@ class LLMRouter:
             return None
         from langchain_groq import ChatGroq
         return ChatGroq(
-            model="llama-3.3-70b-versatile",
+            model=settings.chat_model_id,
             temperature=0,
             max_retries=0,
             timeout=30,
@@ -78,7 +78,7 @@ class LLMRouter:
         """Extract model name from LLM instance for logging."""
         try:
             if provider == "groq":
-                return getattr(instance, "model", "llama-3.3-70b-versatile")
+                return getattr(instance, "model", "openai/gpt-oss-120b")
             elif provider == "mistral":
                 return getattr(instance, "model", "mistral-small-latest")
         except Exception:
@@ -182,6 +182,8 @@ class LLMRouter:
                         continue
 
                 logger.error("[%s] Non-retryable error: %s", provider, e)
+                if purpose == RoutePurpose.CHAT:
+                    raise RuntimeError("chat_unavailable")
                 raise
 
         raise last_error
@@ -192,7 +194,7 @@ router = LLMRouter()
 
 # ── Async-compatible convenience wrappers (replaces app/llm.py) ──
 
-async def call_llm_with_retry(chain, inputs: dict, hard_timeout: int = 30) -> str:
+async def call_llm_with_retry(chain, inputs: dict, hard_timeout: int = 30, purpose: Optional[RoutePurpose] = None) -> str:
     last_error = None
     delay = settings.mistral_retry_initial_delay
     provider = router.get_provider_name()
@@ -254,6 +256,8 @@ async def call_llm_with_retry(chain, inputs: dict, hard_timeout: int = 30) -> st
                     continue
 
             logger.error("[%s] LLM call failed (non-retryable) in %.2fs: %s", provider, elapsed, e)
+            if purpose == RoutePurpose.CHAT:
+                raise RuntimeError("chat_unavailable")
             raise
 
     raise last_error

@@ -1102,7 +1102,8 @@ function GraphInner({ graph }: { graph: { nodes: GraphNode[]; edges: RepoEdge[];
   const [edgesState, setEdges, onEdgesChange] = useEdgesState<Edge>([])
 
   useEffect(() => {
-    setNodes(built.nodes)
+    const nodesWithSelectable = built.nodes.map((n) => ({ ...n, selectable: false }))
+    setNodes(nodesWithSelectable)
     setEdges(built.edges)
   }, [built, setNodes, setEdges])
 
@@ -1234,6 +1235,11 @@ function GraphInner({ graph }: { graph: { nodes: GraphNode[]; edges: RepoEdge[];
           zoomOnScroll={false}
           zoomOnPinch
           nodesDraggable={false}
+          nodesConnectable={false}
+          elementsSelectable={false}
+          deleteKeyCode={null}
+          selectionKeyCode={null}
+          multiSelectionKeyCode={null}
           minZoom={0.08}
           maxZoom={2}
           style={{ background: COLORS.bg, position: "absolute", inset: 0 }}
@@ -1347,6 +1353,35 @@ export default function GraphCanvas() {
       position: "relative",
       background: COLORS.bg,
     }}>
+      {((graph.unresolvedImports ?? 0) > 0 || (graph.unparsedFiles ?? []).length > 0) && (
+        <div style={{
+          padding: "12px 16px",
+          background: "#1a1a1a",
+          border: `1px solid ${COLORS.border}`,
+          borderRadius: 8,
+          margin: "12px",
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          flexShrink: 0,
+        }}>
+          <span style={{ fontSize: 14 }}>{(graph.unresolvedImports ?? 0) > 0 ? "⚠" : "ℹ️"}</span>
+          <div style={{ fontSize: 13, color: COLORS.textMuted }}>
+            {(graph.unresolvedImports ?? 0) > 0
+              ? `${graph.unresolvedImports} import${graph.unresolvedImports === 1 ? "" : "s"} could not be resolved`
+              : ""}
+            {(graph.unresolvedImports ?? 0) > 0 && (graph.unparsedFiles ?? []).length > 0 ? " · " : ""}
+            {(graph.unparsedFiles ?? []).length > 0
+              ? `${graph.unparsedFiles?.length} file${graph.unparsedFiles?.length === 1 ? "" : "s"} failed to parse`
+              : ""}
+            {(graph.unresolvedImports ?? 0) > 0 || (graph.unparsedFiles ?? []).length > 0 ? (
+              <span style={{ fontSize: 11, color: COLORS.textDim, marginLeft: 8 }}>
+                (showing best-effort graph)
+              </span>
+            ) : null}
+          </div>
+        </div>
+      )}
       <ReactFlowProvider>
         <GraphInner graph={enhanced} />
       </ReactFlowProvider>

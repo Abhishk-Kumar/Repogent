@@ -15,7 +15,7 @@ async_session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_o
 
 async def init_db():
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    from app.models.db_models import Job, ScanHistory, GitHubConnection, AutoFixPR, ResponseCache
+    from app.models.db_models import Job, ScanHistory, GitHubConnection, AutoFixPR, ResponseCache, Ticket, JiraConnection, SlackConnection, ApiKey
     async with engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.create_all)
     logger.info("Database initialized at %s", DB_PATH)

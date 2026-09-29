@@ -1,49 +1,24 @@
-"use client"
+import { HomeContent } from "./HomeContent"
 
-import { useState } from "react"
-import { AnimatePresence } from "framer-motion"
-import { useRouter } from "next/navigation"
-import { SiteHeader } from "@/components/site-header"
-import { Hero } from "@/components/hero"
-import { HowItWorks } from "@/components/how-it-works"
-import { Features } from "@/components/features"
-import { LivePreview } from "@/components/live-preview"
-import { SiteFooter } from "@/components/site-footer"
-import { ProcessingScreen } from "@/components/processing-screen"
-import { ParticleBackground } from "@/components/codeatlas/particle-bg"
-import { CodeAtlasProvider } from "@/lib/codeatlas/context"
+export const metadata = {
+  title: 'CodeAtlas — Understand any codebase in minutes, not weeks',
+  description:
+    'CodeAtlas is an AI-powered codebase onboarding agent. Paste a GitHub repo or upload a zip to get an interactive dependency graph, AI chat, security scans, and a plain-English explanation of what the code does.',
+  openGraph: {
+    title: 'CodeAtlas — Understand any codebase in minutes, not weeks',
+    description:
+      'CodeAtlas is an AI-powered codebase onboarding agent. Paste a GitHub repo or upload a zip to get an interactive dependency graph, AI chat, security scans, and a plain-English explanation of what the code does.',
+    images: ['/og-default.png'],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'CodeAtlas — Understand any codebase in minutes, not weeks',
+    description:
+      'CodeAtlas is an AI-powered codebase onboarding agent. Paste a GitHub repo or upload a zip to get an interactive dependency graph, AI chat, security scans, and a plain-English explanation of what the code does.',
+    images: ['/og-default.png'],
+  },
+}
 
 export default function Page() {
-  const [repo, setRepo] = useState<string | null>(null)
-  const router = useRouter()
-
-  const handleComplete = (repoUrl: string) => {
-    const short = repoUrl.replace(/^https?:\/\/github\.com\//, "")
-    setRepo(null)
-    router.push(`/workspace?repo=${encodeURIComponent(short)}`)
-  }
-
-  return (
-    <CodeAtlasProvider>
-      <ParticleBackground />
-      <main className="relative z-10 min-h-screen">
-        <SiteHeader />
-        <Hero onOnboard={setRepo} />
-        <HowItWorks />
-        <Features />
-        <LivePreview />
-        <SiteFooter onOnboard={setRepo} />
-
-        <AnimatePresence>
-          {repo && (
-            <ProcessingScreen
-              repo={repo}
-              onClose={() => setRepo(null)}
-              onComplete={handleComplete}
-            />
-          )}
-        </AnimatePresence>
-      </main>
-    </CodeAtlasProvider>
-  )
+  return <HomeContent />
 }

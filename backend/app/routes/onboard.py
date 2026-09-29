@@ -1,8 +1,11 @@
+import hashlib
 import logging
 
 from fastapi import APIRouter
 
+from app.cache import get_cached, set_cache
 from app.models.schemas import OnboardRequest, AskRequest, TraceFlowRequest, StartHereRequest, ExplainFileRequest
+from app.utils.normalize import get_cache_key
 from app.chains.flow_trace_chain import generate_flow_trace
 from app.graph.blast_radius import compute_blast_radius
 from app.routes.jobs import submit_job
@@ -74,7 +77,7 @@ async def explain_file(request: ExplainFileRequest):
 
     try:
         from app.tools.code_tools import read_file
-        from app.llm_router import get_llm, call_llm_with_retry
+        from app.llm_router import get_llm, call_llm_with_retry, RoutePurpose
         from langchain_core.prompts import ChatPromptTemplate
         from langchain_core.output_parsers import StrOutputParser
 
@@ -112,9 +115,21 @@ async def ask(request: AskRequest):
     if not session:
         return {"answer": "Session not found. Please re-onboard the repo first."}
 
+    # Answer cache: identical questions against the same repo+commit skip
+    # retrieval + LLM entirely. Keyed per commit so new code invalidates.
+    qhash = hashlib.sha256(request.question.strip().lower().encode()).hexdigest()[:16]
+    cache_key = get_cache_key(request.session_id, f"{session.get('commit_sha', '')}::ask::{qhash}")
+    try:
+        hit = await get_cached(cache_key)
+    except Exception:
+        logger.warning("Ask cache lookup failed; proceeding uncached", exc_info=True)
+        hit = None
+    if hit and isinstance(hit.get("answer"), str):
+        return {"answer": hit["answer"], "cached": True}
+
     try:
         from app.ingestion.vector_store import get_vector_store
-        from app.llm_router import get_llm, call_llm_with_retry
+        from app.llm_router import get_llm, call_llm_with_retry, RoutePurpose
         from langchain_core.prompts import ChatPromptTemplate
         from langchain_core.output_parsers import StrOutputParser
 
@@ -133,9 +148,17 @@ async def ask(request: AskRequest):
             ("human", "Context from the codebase:\n{context}\n\nQuestion: {question}\n\nAnswer:"),
         ])
         chain = prompt | get_llm() | StrOutputParser()
-        answer = await call_llm_with_retry(chain, {"context": context, "question": request.question})
+        answer = await call_llm_with_retry(chain, {"context": context, "question": request.question}, purpose=RoutePurpose.CHAT)
 
+        try:
+            await set_cache(cache_key, {"answer": answer})
+        except Exception:
+            logger.warning("Ask cache store failed; returning uncached answer", exc_info=True)
         return {"answer": answer}
-    except Exception as e:
+    except RuntimeError as e:
+        # Error boundary: never leak raw provider payload to the client.
+        logger.exception("Ask failed (provider error)")
+        return {"error": "chat_unavailable", "retryable": True}
+    except Exception:
         logger.exception("Ask failed")
-        return {"answer": f"Failed to process question: {e}"}
+        return {"error": "chat_unavailable", "retryable": True}

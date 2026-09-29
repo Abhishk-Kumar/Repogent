@@ -1,7 +1,7 @@
 "use client"
 
 import { useRef, useState } from "react"
-import { motion } from "framer-motion"
+import { motion } from "motion/react"
 import { ArrowRight, GitBranch, Link2, UploadCloud, Sparkles } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { GraphBackground } from "@/components/graph-background"
@@ -17,21 +17,31 @@ export function Hero({ onOnboard }: { onOnboard: (repo: string) => void }) {
   const [submitting, setSubmitting] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const handleSubmit = () => {
+  // Validation function for GitHub repo (supports github.com/owner/repo or owner/repo)
+    const validateRepoUrl = (value: string): string | null => {
+      const trimmed = value.trim()
+      if (!trimmed) {
+        return "Please enter a GitHub repository URL"
+      }
+      // Pattern for github.com/owner/repo or owner/repo (allowing .git at the end)
+      const pattern = /^(https?:\/\/)?(www\.)?github\.com\/[^\/]+\/[^\/]+(?:\.git)?$|^[^\/]+\/[^\/]+(?:\.git)?$/
+      if (!pattern.test(trimmed)) {
+        return "Enter a valid GitHub repository (e.g. github.com/user/repo or user/repo)"
+      }
+      return null
+    }
+
+    const handleSubmit = () => {
     if (submitting) return
     if (tab === "url") {
-      const repo = url.trim()
-      if (!repo) {
-        setError("Please enter a GitHub repository URL")
-        return
-      }
-      if (!repo.includes("github.com") && !repo.includes("/")) {
-        setError("Enter a full GitHub URL (e.g. github.com/user/repo)")
+      const validationError = validateRepoUrl(url)
+      if (validationError) {
+        setError(validationError)
         return
       }
       setError(null)
       setSubmitting(true)
-      const short = repo.replace(/^https?:\/\/github\.com\//, "")
+      const short = url.trim().replace(/^https?:\/\/github\.com\//, "").replace(/\.git$/, "")
       onOnboard(short)
     } else {
       if (!fileName) {
@@ -117,25 +127,36 @@ export function Hero({ onOnboard }: { onOnboard: (repo: string) => void }) {
             </TabButton>
           </div>
 
-          {error && (
-            <div className="px-3 pt-2">
-              <p className="text-xs text-sev-high">{error}</p>
-            </div>
-          )}
+{error && (
+             <div className="px-3 pt-2" id="url-error">
+               <p className="text-xs text-sev-high">{error}</p>
+             </div>
+           )}
           <div className="p-3">
             {tab === "url" ? (
               <div className="flex flex-col gap-3 sm:flex-row">
-                <div className="flex flex-1 items-center gap-2 rounded-lg border border-border bg-background/60 px-3">
-                  <GitBranch className="size-4 shrink-0 text-muted-foreground" />
-                  <input
-                    value={url}
-                    onChange={(e) => { setUrl(e.target.value); setError(null) }}
-                    onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
-                    placeholder="github.com/vercel/next.js"
-                    className="w-full bg-transparent py-3 font-mono text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none"
-                    aria-label="GitHub repository URL"
-                  />
-                </div>
+<div className="flex flex-1 items-center gap-2 rounded-lg border border-border bg-background/60 px-3">
+                   <GitBranch className="size-4 shrink-0 text-muted-foreground" />
+                   <input
+                     value={url}
+                     onChange={(e) => {
+                       setUrl(e.target.value);
+                       // Validate on every change and update error state
+                       const validationError = validateRepoUrl(e.target.value)
+                       setError(validationError)
+                     }}
+                     onBlur={(e) => {
+                       // Validate on blur as well
+                       const validationError = validateRepoUrl(e.target.value)
+                       setError(validationError)
+                     }}
+                     onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+                     placeholder="github.com/vercel/next.js"
+                     className="w-full bg-transparent py-3 font-mono text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none"
+                     aria-label="GitHub repository URL"
+                     aria-describedby={error ? "url-error" : undefined}
+                   />
+                 </div>
                 <Button
                   onClick={handleSubmit}
                   disabled={submitting}

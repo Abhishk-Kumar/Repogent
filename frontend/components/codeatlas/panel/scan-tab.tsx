@@ -13,12 +13,20 @@ import {
   ExternalLink,
   Share2,
 } from "lucide-react"
-import { useCallback, useEffect, useRef, useState } from "react"
+import { toast } from "sonner"
+import { useEffect, useRef, useState } from "react"
+import { Check, TicketPlus } from "lucide-react"
 import { SEVERITY_META } from "../style-maps"
 import { ScanSkeleton } from "../skeletons"
-import { fetchScanReport, getSessionId, saveScanHistory } from "@/lib/codeatlas/api"
+import { createTicket, createTicketsBulk, fetchScanReport, listTickets, saveScanHistory } from "@/lib/codeatlas/api"
+import { ShareToSlackButton } from "../slack-share"
 import { useCodeAtlas } from "@/lib/codeatlas/context"
-import type { ScanReport, Severity } from "@/lib/codeatlas/types"
+import type { ScanReport, Severity, Ticket } from "@/lib/codeatlas/types"
+
+// File 04: ticket eligibility mirrors the backend (critical/high/medium;
+// low/info not eligible). Bulk mode pre-selects critical + high only.
+const TICKET_ELIGIBLE: Severity[] = ["critical", "high", "medium"]
+const BULK_PRESELECTED: Severity[] = ["critical", "high"]
 
 const BASE = process.env.NEXT_PUBLIC_API_BASE_URL || (typeof window !== 'undefined' ? window.location.origin : "http://localhost:8000")
 
@@ -35,10 +43,28 @@ const SEVERITY_ORDER: Severity[] = ["critical", "high", "medium", "low"]
 function HealthHeader({ report }: { report: ScanReport }) {
   const color = GRADE_COLOR[report.grade]
 
-  const copyBadge = () => {
-    const badge = `[![CodeAtlas Health](https://img.shields.io/badge/health-${report.grade}-${report.grade === 'A' ? 'brightgreen' : report.grade === 'B' ? 'green' : report.grade === 'C' ? 'yellow' : report.grade === 'D' ? 'orange' : 'red'})](https://codeatlas.app)`
-    navigator.clipboard.writeText(badge)
-  }
+const copyBadge = () => {
+     const badge = `[![CodeAtlas Health](https://img.shields.io/badge/health-${report.grade}-${report.grade === 'A' ? 'brightgreen' : report.grade === 'B' ? 'green' : report.grade === 'C' ? 'yellow' : report.grade === 'D' ? 'orange' : 'red'})](https://codeatlas.app)`
+     navigator.clipboard.writeText(badge).then(() => {
+       toast.success("Badge markdown copied")
+     }).catch(() => {
+       // Fallback: use a temporary textarea
+       const textarea = document.createElement("textarea")
+       textarea.value = badge
+       textarea.style.position = "fixed"
+       textarea.style.left = "-9999px"
+       document.body.appendChild(textarea)
+       textarea.select()
+       try {
+         document.execCommand("copy")
+         toast.success("Badge markdown copied")
+       } catch (err) {
+         toast.error("Failed to copy badge")
+       } finally {
+         document.body.removeChild(textarea)
+       }
+     })
+   }
 
   return (
     <div className="rounded-xl border border-border bg-card p-4">
@@ -98,12 +124,25 @@ function HealthHeader({ report }: { report: ScanReport }) {
 function IssueRow({
   issue,
   index,
+  ticketCreated,
+  creating,
+  selected,
+  showSelect,
+  onToggleSelect,
+  onCreate,
 }: {
   issue: ScanReport["issues"][number]
   index: number
+  ticketCreated: boolean
+  creating: boolean
+  selected: boolean
+  showSelect: boolean
+  onToggleSelect: () => void
+  onCreate: () => void
 }) {
   const [open, setOpen] = useState(false)
   const meta = SEVERITY_META[issue.severity]
+  const eligible = (TICKET_ELIGIBLE as string[]).includes(issue.severity)
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
@@ -115,6 +154,19 @@ function IssueRow({
         onClick={() => setOpen((o) => !o)}
         className="flex w-full items-center gap-2 px-3 py-2.5 text-left"
       >
+        {showSelect && (
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={(e) => {
+              e.stopPropagation()
+              onToggleSelect()
+            }}
+            onClick={(e) => e.stopPropagation()}
+            aria-label={`Select issue ${issue.title}`}
+            className="size-3.5 shrink-0 accent-emerald-500"
+          />
+        )}
         <span
           className={`rounded px-1.5 py-0.5 text-[10px] font-medium uppercase ${meta.bg} ${meta.text}`}
         >
@@ -124,34 +176,21 @@ function IssueRow({
           {issue.title}
         </span>
         {/* Jira/Linear export */}
-        <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
-          <div
-            onClick={() => {
-              const jiraUrl = `https://codeatlas.atlassian.net/secure/CreateIssueDetails!init.jspa?summary=CodeAtlas: ${encodeURIComponent(issue.title)}&description=${encodeURIComponent(`${issue.detail}\n\nFile: ${issue.file}:${issue.line}\n\nFix: ${issue.fix}`)}`
-              window.open(jiraUrl, '_blank', 'noopener,noreferrer')
-            }}
-            className="flex size-5 cursor-pointer items-center justify-center rounded text-muted-foreground/50 hover:text-muted-foreground"
-            title="Create Jira issue"
-            role="button"
-            tabIndex={0}
-            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') window.open(`https://codeatlas.atlassian.net/secure/CreateIssueDetails!init.jspa?summary=CodeAtlas: ${encodeURIComponent(issue.title)}&description=${encodeURIComponent(`${issue.detail}\n\nFile: ${issue.file}:${issue.line}\n\nFix: ${issue.fix}`)}`, '_blank', 'noopener,noreferrer') }}
-          >
-            <svg className="size-3" viewBox="0 0 24 24" fill="currentColor"><path d="M11.53 2C7.153 2 2 6.65 2 11.53c0 4.88 5.153 9.47 9.53 9.47 4.38 0 6.47-1.59 6.47-1.59l-1.36-1.36s-1.86 1.36-5.11 1.36c-3.25 0-7.45-3.57-7.45-7.88S8.28 4 11.53 4c3.25 0 5.11 1.36 5.11 1.36l1.36-1.36S15.91 2 11.53 2zM22 7.47l-7.5 7.5-3.5-3.5-1.41 1.41 4.91 4.91L23.41 8.88 22 7.47z"/></svg>
-          </div>
-          <div
-            onClick={() => {
-              const linearUrl = `https://linear.new?title=CodeAtlas: ${encodeURIComponent(issue.title)}&description=${encodeURIComponent(`${issue.detail}\n\nFile: ${issue.file}:${issue.line}\n\nFix: ${issue.fix}`)}`
-              window.open(linearUrl, '_blank', 'noopener,noreferrer')
-            }}
-            className="flex size-5 cursor-pointer items-center justify-center rounded text-muted-foreground/50 hover:text-muted-foreground"
-            title="Create Linear issue"
-            role="button"
-            tabIndex={0}
-            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') window.open(`https://linear.new?title=CodeAtlas: ${encodeURIComponent(issue.title)}&description=${encodeURIComponent(`${issue.detail}\n\nFile: ${issue.file}:${issue.line}\n\nFix: ${issue.fix}`)}`, '_blank', 'noopener,noreferrer') }}
-          >
-            <svg className="size-3" viewBox="0 0 24 24" fill="currentColor"><path d="M3 3h18v18H3V3zm2 2v14h14V5H5zm3 3h8v2H8V8zm0 4h8v2H8v-2zm0 4h5v2H8v-2z"/></svg>
-          </div>
-        </div>
+<div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+  <div
+    onClick={() => {
+      const linearUrl = `https://linear.new?title=CodeAtlas: ${encodeURIComponent(issue.title)}&description=${encodeURIComponent(`${issue.detail}\n\nFile: ${issue.file}:${issue.line}\n\nFix: ${issue.fix}`)}`
+      window.open(linearUrl, '_blank', 'noopener,noreferrer')
+    }}
+    className="flex size-5 cursor-pointer items-center justify-center rounded text-muted-foreground/50 hover:text-muted-foreground"
+    title="Create issue"
+    role="button"
+    tabIndex={0}
+    onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') window.open(`https://linear.new?title=CodeAtlas: ${encodeURIComponent(issue.title)}&description=${encodeURIComponent(`${issue.detail}\n\nFile: ${issue.file}:${issue.line}\n\nFix: ${issue.fix}`)}`, '_blank', 'noopener,noreferrer') }}
+  >
+    <svg className="size-3" viewBox="0 0 24 24" fill="currentColor"><path d="M3 3h18v18H3V3zm2 2v14h14V5H5zm3 3h8v2H8V8zm0 4h8v2H8v-2zm0 4h5v2H8v-2z"/></svg>
+  </div>
+</div>
         <ChevronDown
           className={`size-4 shrink-0 text-muted-foreground transition-transform ${
             open ? "rotate-180" : ""
@@ -176,6 +215,25 @@ function IssueRow({
                 <Wrench className="mt-0.5 size-3 shrink-0" />
                 <span className="leading-relaxed">{issue.fix}</span>
               </div>
+              {eligible && (
+                <button
+                  onClick={onCreate}
+                  disabled={ticketCreated || creating}
+                  className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1.5 text-[11px] font-medium text-foreground transition-colors hover:border-primary/40 disabled:cursor-default disabled:opacity-60"
+                >
+                  {ticketCreated ? (
+                    <>
+                      <Check className="size-3 text-emerald-500" />
+                      Ticket created ✓
+                    </>
+                  ) : (
+                    <>
+                      <TicketPlus className="size-3" />
+                      {creating ? "Creating…" : "Create ticket"}
+                    </>
+                  )}
+                </button>
+              )}
             </div>
           </motion.div>
         )}
@@ -365,10 +423,20 @@ function AutoFixSection({ report }: { report: ScanReport }) {
 
 
 export function ScanTab() {
+  const { incrementScanHistoryVersion } = useCodeAtlas()
   const [report, setReport] = useState<ScanReport | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [exportOpen, setExportOpen] = useState(false)
   const exportRef = useRef<HTMLDivElement>(null)
+  // File 04: in-app ticket queue state
+  const [tickets, setTickets] = useState<Ticket[]>([])
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [creatingId, setCreatingId] = useState<string | null>(null)
+  const [bulkCreating, setBulkCreating] = useState(false)
+
+  const refreshTickets = () => {
+    listTickets().then(setTickets).catch(() => {})
+  }
 
   useEffect(() => {
     let active = true
@@ -377,16 +445,89 @@ export function ScanTab() {
       .then((data) => {
         if (active) {
           setReport(data)
-          saveScanHistory(data).catch(() => {})
+          saveScanHistory(data).then(() => {
+            incrementScanHistoryVersion()
+          }).catch(() => {})
+          // Pre-select major (High/Critical) findings for bulk mode
+          setSelectedIds(
+            data.issues
+              .filter((i) => (BULK_PRESELECTED as string[]).includes(i.severity))
+              .map((i) => i.id),
+          )
         }
       })
       .catch((err) => {
         if (active) setError(err.message)
       })
+    refreshTickets()
     return () => {
       active = false
     }
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [incrementScanHistoryVersion])
+
+  const ticketedIds = new Set(tickets.map((t) => t.source_finding_id))
+
+  const describeIssue = (issue: ScanReport["issues"][number]) =>
+    `${issue.detail}\n\nFile: ${issue.file}:${issue.line}\n\nSuggested fix: ${issue.fix}`
+
+  const handleCreateTicket = async (issue: ScanReport["issues"][number]) => {
+    if (ticketedIds.has(issue.id) || creatingId) return
+    setCreatingId(issue.id)
+    try {
+      const t = await createTicket({
+        title: `CodeAtlas: ${issue.title}`,
+        description: describeIssue(issue),
+        severity: issue.severity,
+        source_finding_id: issue.id,
+      })
+      setTickets((prev) => [...prev, t])
+      toast.success("Ticket created ✓")
+    } catch {
+      toast.error("Failed to create ticket")
+    } finally {
+      setCreatingId(null)
+    }
+  }
+
+  const handleBulkCreate = async () => {
+    if (!report || bulkCreating) return
+    const targets = report.issues.filter(
+      (i) => selectedIds.includes(i.id) && !ticketedIds.has(i.id),
+    )
+    if (targets.length === 0) return
+    setBulkCreating(true)
+    try {
+      // One batch request — no N+1 POST loop (POST /tickets/bulk).
+      const res = await createTicketsBulk({
+        issues: targets.map((issue) => ({
+          title: `CodeAtlas: ${issue.title}`,
+          description: describeIssue(issue),
+          severity: issue.severity,
+          source_finding_id: issue.id,
+        })),
+      })
+      setTickets((prev) => [...prev, ...res.created])
+      const createdIds = new Set(res.created.map((t) => t.source_finding_id))
+      if (res.count > 0) {
+        toast.success(`${res.count} ticket${res.count === 1 ? "" : "s"} created`)
+        setSelectedIds((prev) => prev.filter((id) => {
+          const issue = targets.find((t) => t.id === id)
+          return !issue || !createdIds.has(issue.id)
+        }))
+      }
+      if (res.skipped.length > 0) {
+        toast.warning(`${res.skipped.length} finding${res.skipped.length === 1 ? "" : "s"} skipped (ineligible or duplicate)`)
+      }
+      if (res.count === 0 && res.skipped.length === 0) {
+        toast.error("Failed to create tickets")
+      }
+    } catch {
+      toast.error("Failed to create tickets")
+    } finally {
+      setBulkCreating(false)
+    }
+  }
 
   if (error) {
     return (
@@ -407,6 +548,8 @@ export function ScanTab() {
         <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
           Scan Report
         </p>
+        <div className="flex items-center gap-1.5">
+        <ShareToSlackButton report={report} />
         <div ref={exportRef} className="relative">
           <button
             onClick={() => setExportOpen((o) => !o)}
@@ -451,6 +594,7 @@ export function ScanTab() {
             )}
           </AnimatePresence>
         </div>
+        </div>
       </div>
 
       <div className="thin-scroll flex-1 space-y-4 overflow-y-auto p-4">
@@ -458,26 +602,88 @@ export function ScanTab() {
 
         <AutoFixSection report={report} />
 
-        <div className="space-y-3">
-          {SEVERITY_ORDER.map((sev) => {
-            const items = report.issues.filter((i) => i.severity === sev)
-            if (items.length === 0) return null
-            return (
-              <div key={sev} className="space-y-1.5">
-                <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                  <span
-                    className="size-2 rounded-full"
-                    style={{ background: SEVERITY_META[sev].color }}
-                  />
-                  {SEVERITY_META[sev].label} · {items.length}
-                </p>
-                {items.map((issue, i) => (
-                  <IssueRow key={issue.id} issue={issue} index={i} />
-                ))}
-              </div>
-            )
-          })}
-        </div>
+        {report.issues.length === 0 ? (
+          <p className="text-[13px] text-card-foreground">
+            No issues found — nice.
+          </p>
+        ) : (
+          <div className="space-y-3">
+            {(() => {
+              const eligible = report.issues.filter((i) =>
+                (TICKET_ELIGIBLE as string[]).includes(i.severity),
+              )
+              const major = report.issues.filter((i) =>
+                (BULK_PRESELECTED as string[]).includes(i.severity),
+              )
+              if (eligible.length === 0) return null
+              const allMajorSelected =
+                major.length > 0 && major.every((m) => selectedIds.includes(m.id))
+              const pendingSelected = selectedIds.filter(
+                (id) => !ticketedIds.has(id),
+              ).length
+              return (
+                <div className="flex items-center gap-3 rounded-xl border border-border bg-card px-3 py-2.5">
+                  <label className="flex flex-1 cursor-pointer items-center gap-2 text-[12px] text-foreground">
+                    <input
+                      type="checkbox"
+                      checked={allMajorSelected}
+                      onChange={() => {
+                        setSelectedIds(
+                          allMajorSelected ? [] : major.map((m) => m.id),
+                        )
+                      }}
+                      className="size-3.5 accent-emerald-500"
+                    />
+                    Select all major issues ({major.length})
+                  </label>
+                  <button
+                    onClick={handleBulkCreate}
+                    disabled={pendingSelected === 0 || bulkCreating}
+                    className="rounded-lg bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground transition-opacity disabled:opacity-40"
+                  >
+                    {bulkCreating
+                      ? "Creating…"
+                      : `Create ${pendingSelected} ticket${pendingSelected === 1 ? "" : "s"}`}
+                  </button>
+                </div>
+              )
+            })()}
+            {SEVERITY_ORDER.map((sev) => {
+              const items = report.issues.filter((i) => i.severity === sev)
+              if (items.length === 0) return null
+              return (
+                <div key={sev} className="space-y-1.5">
+                  <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                    <span
+                      className="size-2 rounded-full"
+                      style={{ background: SEVERITY_META[sev].color }}
+                    />
+                    {SEVERITY_META[sev].label} · {items.length}
+                  </p>
+                  {items.map((issue, i) => (
+                    <IssueRow
+                      key={issue.id}
+                      issue={issue}
+                      index={i}
+                      ticketCreated={ticketedIds.has(issue.id)}
+                      creating={creatingId === issue.id}
+                      selected={selectedIds.includes(issue.id)}
+                      showSelect={(TICKET_ELIGIBLE as string[]).includes(issue.severity)}
+                      onToggleSelect={() =>
+                        setSelectedIds((prev) =>
+                          prev.includes(issue.id)
+                            ? prev.filter((id) => id !== issue.id)
+                            : [...prev, issue.id],
+                        )
+                      }
+                      onCreate={() => handleCreateTicket(issue)}
+                    />
+                  ))}
+                </div>
+              )
+            })}
+          </div>
+        )}
 
         <div className="rounded-xl border border-border bg-card p-4">
           <p className="mb-3 flex items-center gap-1.5 text-[13px] font-medium">

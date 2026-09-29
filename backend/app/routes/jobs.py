@@ -228,6 +228,7 @@ async def _run_onboard(job_id: str, repo_url: str):
             "repo_path": metadata.local_path,
             "graph": graph,
             "file_list": files,
+            "commit_sha": commit_sha,
         }
         session_stored = True
 
@@ -286,6 +287,20 @@ async def _run_scan(job_id: str, repo_url: str):
     from app.routes.integration import _generate_scan_report
     loop = asyncio.get_event_loop()
     report = await loop.run_in_executor(None, _generate_scan_report, session)
+
+    # 06.1 notify-on-complete: fire exactly once per completed scan, iff opted in.
+    try:
+        from app.routes.slack import maybe_notify_scan_complete
+        async with async_session_factory() as notify_session:
+            await maybe_notify_scan_complete(
+                notify_session,
+                repo_url,
+                float(getattr(report, "score", 0) or 0),
+                str(getattr(report, "grade", "") or ""),
+                len(getattr(report, "issues", []) or []),
+            )
+    except Exception:
+        logger.warning("Slack notify-on-complete failed (non-fatal)", exc_info=True)
 
     result = report.model_dump()
     await set_cache(cache_key, result)

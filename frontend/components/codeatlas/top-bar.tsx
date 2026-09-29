@@ -2,11 +2,63 @@
 
 import { AnimatePresence, motion } from "motion/react"
 import { Check, FolderGit2, GitBranch, TriangleAlert, Loader2 } from "lucide-react"
-import { useMemo } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { CompassLogo } from "./compass-logo"
 import { useCodeAtlas } from "@/lib/codeatlas/context"
 import { GitHubConnect } from "./github-connect"
+import { toast } from "sonner"
+import { fetchJiraConnect, fetchJiraStatus } from "@/lib/codeatlas/api"
+import { SlackConnectButton } from "./slack-share"
 import type { AgentActivity } from "@/lib/codeatlas/types"
+
+function JiraConnectButton() {
+  const [connected, setConnected] = useState(false)
+  const [siteName, setSiteName] = useState("")
+
+  useEffect(() => {
+    fetchJiraStatus()
+      .then((s) => {
+        setConnected(s.connected)
+        setSiteName(s.site_name ?? "")
+      })
+      .catch(() => {})
+  }, [])
+
+  if (connected) {
+    return (
+      <span
+        className="hidden items-center gap-1 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1.5 text-xs text-emerald-500 md:flex"
+        title={siteName ? `Jira connected: ${siteName}` : "Jira connected"}
+      >
+        <Check className="size-3" />
+        Jira{siteName ? `: ${siteName}` : ""}
+      </span>
+    )
+  }
+
+  return (
+    <button
+      onClick={() =>
+        fetchJiraConnect()
+          .then((r) => {
+            if (r.auth_url) {
+              window.open(r.auth_url, "_blank", "noopener,noreferrer")
+            } else {
+              toast.error("Jira OAuth is not configured on this server", {
+                description: r.detail || "Set JIRA_CLIENT_ID / JIRA_CLIENT_SECRET / JIRA_REDIRECT_URI, then try again.",
+              })
+            }
+          })
+          .catch(() => {
+            toast.error("Could not reach the server. Is the backend running?")
+          })
+      }
+      className="hidden items-center gap-1 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground md:flex"
+    >
+      Connect Jira
+    </button>
+  )
+}
 
 function StatusIndicator({ state }: { state: AgentActivity["state"] }) {
   if (state === "complete") {
@@ -138,6 +190,8 @@ export function TopBar() {
           {repoShort && (
             <>
               <GitHubConnect repoUrl={sessionId!} />
+              <JiraConnectButton />
+              <SlackConnectButton />
               <a
                 href="/"
                 className="hidden items-center gap-1 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:border-emerald-500/40 hover:text-emerald-500 md:flex"
