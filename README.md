@@ -1,95 +1,61 @@
-# CodeAtlas
 
-AI-powered codebase onboarding. Paste a GitHub repo URL and get an interactive dependency graph, an AI assistant that understands the code, and an automated security scan — all in minutes.
+# Repogent (CodeAtlas)
+
+AI-powered codebase onboarding. Paste a GitHub repo URL and get an interactive dependency graph, an AI assistant that answers questions about the code, and an automated security scan.
+
+**Live demo:** https://YOUR-APP.vercel.app  *(frontend on Vercel)*
+**API:** https://repogent.onrender.com  *(backend on Render, free tier)*
+
+> **Heads up:** the backend runs on Render's free tier and sleeps after 15 minutes of inactivity. The first request after a nap can take 30-60 seconds while it wakes up. The app shows a "waking up" message during this time, so please give it a moment.
+
+## What it does
+
+- **Dependency graph:** two-level interactive graph (module overview, then file drill-down) built with Python AST and JS/TS parsing
+- **AI chat (RAG):** ask questions about the repo, answered from retrieved code chunks
+- **Security / health scan:** heuristic scan with a grade from A to F, exportable as JSON, CSV, TXT or PDF
+- **Explain, trace and blast radius:** repo summary, LLM-narrated execution flow, and transitive impact analysis for any file
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                   Frontend (Next.js 16)                     │
-│  http://localhost:3000                                       │
-│                                                             │
-│  ┌──────────┐  ┌──────────────────────────────────────────┐ │
-│  │ Home     │  │ Workspace                                 │ │
-│  │ Page     │  │ ┌──────────┐  ┌──────────────────────┐   │ │
-│  │ ┌──────┐ │  │ │ TopBar   │  │ GraphCanvas (65%)    │   │ │
-│  │ │ Hero │─┼──┼→│ ┌──────┐ │  │ ┌──────────────────┐ │   │ │
-│  │ │ URL  │ │  │ │ │Agent │ │  │ │ Module Overview   │ │   │ │
-│  │ │input │ │  │ │ │bar   │ │  │ │ (circular cards)  │ │   │ │
-│  │ └──────┘ │  │ │ └──────┘ │  │ │   ↓ click module  │ │   │ │
-│  │ ┌──────┐ │  │ └──────────┘  │ │ │ Container + Grid │ │   │ │
-│  │ │SSE   │─┼──┼→──────────────┼→│ │   ↓ click file   │ │   │ │
-│  │ │modal │ │  │               │  │ │ NodePopover      │ │   │ │
-│  │ └──────┘ │  │               │  │ └──────────────────┘ │   │ │
-│  └──────────┘  │               │  └──────────────────────┘   │ │
-│                 │               │  ┌──────────────────────┐   │ │
-│                 │               │  │ RightPanel (35%)     │   │ │
-│                 │               │  │ ┌─────┬──────┬─────┐ │   │ │
-│                 │               │  │ │Chat │ Scan │Explain│   │ │
-│                 │               │  │ └─────┴──────┴─────┘ │   │ │
-│                 │               │  └──────────────────────┘   │ │
-│                 │               └──────────────────────────────┘ │
-│                 └─────────────────────────────────────────────────┘
-│                         ▲ fetch / SSE                            │
-│                         │                                        │
-└─────────────────────────┼────────────────────────────────────────┘
-                          │
-┌─────────────────────────┼────────────────────────────────────────┐
-│              Backend (FastAPI + LangChain)                       │
-│              http://localhost:8000                                │
-│                                                                  │
-│  ┌──────────────────────────────────────────────────────────┐   │
-│  │  POST /onboard/async → GET /jobs/{id}/status (polling)   │   │
-│  │  ┌──────┐ → ┌──────┐ → ┌──────┐ → ┌──────┐ → ┌──────┐  │   │
-│  │  │Clone │   │Chunk │   │Build │   │Label │   │Done  │  │   │
-│  │  │ repo │   │files │   │graph │   │files │   │      │  │   │
-│  │  └──────┘   └──────┘   └──────┘   └──────┘   └──────┘  │   │
-│  └──────────────────────────────────────────────────────────┘   │
-│                                                                  │
-│  POST /graph       → returns dependency graph                   │
-│  POST /scan_report → returns code health scan (grade A-F)       │
-│  POST /explain_repo → returns 5 summary points                  │
-│  POST /ask         → RAG-based Q&A (vector search + LLM)        │
-│  POST /trace_flow  → LLM-narrated execution walkthrough         │
-│  POST /blast_radius → transitive dependency impact analysis     │
-│                                                                  │
-│  ┌─────────────────────┐   ┌──────────────────────────────┐     │
-│  │ Graph Builder        │   │ LLM (Groq → Mistral fallback)│     │
-│  │ ├── Python AST       │   │ ┌──────────────────────────┐ │     │
-│  │ ├── JS/TS regex      │   │ │ call_llm_with_retry()   │ │     │
-│  │ ├── Flask/FastAPI    │   │ │ max 3 attempts, backoff │ │     │
-│  │ └── Express routes   │   │ └──────────────────────────┘ │     │
-│  └─────────────────────┘   └──────────────────────────────┘     │
-│                                                                  │
-│  ┌─────────────────────┐   ┌──────────────────────────────┐     │
-│  │ Embeddings           │   │ Vector Store (ChromaDB)      │     │
-│  │ ├── HuggingFace API  │   │ ├── Code-aware chunking     │     │
-│  │ └── Hash fallback    │   │ └── Semantic search (top-5) │     │
-│  └─────────────────────┘   └──────────────────────────────┘     │
-│                                                                  │
-│  ┌──────────────────────────────────────────────────────────┐   │
-│  │ Job + session store (SQLite via SQLModel + in-memory cache) │   │
-│  │ Key: repo_url → { repo_path, graph, file_list }          │   │
-│  └──────────────────────────────────────────────────────────┘   │
-└──────────────────────────────────────────────────────────────────┘
+  Browser
+     │
+     ▼
+┌──────────────────────┐        HTTPS (fetch + polling)       ┌────────────────────────────┐
+│ Frontend (Vercel)    │ ───────────────────────────────────▶ │ Backend (Render, free)     │
+│ Next.js 16 + React 19│                                      │ FastAPI + LangChain        │
+│ React Flow, Tailwind │ ◀─────────────────────────────────── │                            │
+└──────────────────────┘            JSON responses            │  Onboarding job:           │
+                                                              │  clone → chunk → graph →   │
+                                                              │  label → done              │
+                                                              │                            │
+                                                              │  LLM: Groq, Mistral        │
+                                                              │       fallback + retry     │
+                                                              │  Vectors: ChromaDB         │
+                                                              │  Embeddings: HuggingFace   │
+                                                              │       (hash fallback)      │
+                                                              │  Jobs/history: SQLite      │
+                                                              └────────────────────────────┘
 ```
 
-## Quick Start
+The frontend and backend deploy separately. The frontend finds the API through `NEXT_PUBLIC_API_BASE_URL`, and the backend allows the frontend's origin through CORS.
+
+## Quick start (local)
 
 ### Prerequisites
-- Python 3.12+
+
+- Python 3.12+ and [uv](https://docs.astral.sh/uv/)
 - Node.js 20+
 - A [Groq API key](https://console.groq.com/) (free tier works)
-- Optional: [Mistral API key](https://console.mistral.ai/) for fallback
+- Optional: a [Mistral API key](https://console.mistral.ai/) for fallback
 
 ### Backend
 
 ```bash
 cd backend
-cp .env.example .env    # add GROQ_API_KEY
-uv venv && source .venv/bin/activate
+cp .env.example .env          # add GROQ_API_KEY
 uv sync
-uvicorn app.main:app --reload --port 8000
+uv run uvicorn app.main:app --reload --port 8000
 ```
 
 ### Frontend
@@ -97,157 +63,125 @@ uvicorn app.main:app --reload --port 8000
 ```bash
 cd frontend
 npm install
-echo "NEXT_PUBLIC_API_BASE_URL=http://localhost:8000" > .env.local
+cp .env.example .env.local    # NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
 npm run dev
 ```
 
-Open `http://localhost:3000`, paste a public GitHub URL like `github.com/psf/requests`, and click **Onboard Repository**.
+Open http://localhost:3000, paste a public repo such as `github.com/psf/requests`, and click **Onboard Repository**.
 
-### Production (single process)
+## Deployment
 
-```bash
-cd backend
-uv venv && source .venv/bin/activate && uv sync
-cd ../frontend && npm install && npm run build:static
-cd ../backend
-uvicorn app.main:app --host 0.0.0.0 --port 8000
-```
+### Backend on Render (free)
 
-`npm run build:static` builds the Next.js static export and copies it into `backend/static/`. The backend serves the built frontend from `static/`, so `http://localhost:8000` serves everything.
+1. Create a **Web Service** from this repo (or use the `render.yaml` blueprint).
+2. Root: repo root, build: `cd backend && pip install uv && uv sync --frozen`, start: `cd backend && uv run uvicorn app.main:app --host 0.0.0.0 --port $PORT`.
+3. Health check path: `/health`.
+4. Set environment variables: `GROQ_API_KEY`, `MISTRAL_API_KEY` (optional), and `CORS_ORIGINS` (your Vercel URL, comma-separated if more than one).
 
-#### How it works on Render
+### Frontend on Vercel
 
-- The frontend is built as a static export (`output: "export"` in `next.config.mjs`)
-- `npm run build:static` copies the export to `backend/static/`, served by FastAPI's `StaticFiles`
-- Single service serves both API and frontend at the same domain — no CORS / URL config needed
-- The frontend detects the API base URL via `window.location.origin` at runtime, so `NEXT_PUBLIC_API_BASE_URL` is intentionally **unset** in production (do not set it to the private `hostport` — that's the internal network address, not the public URL)
-- ChromaDB, SQLite (`codeatlas.db`) and cloned repos persist on the mounted disk; without the disk, sessions vanish on every restart/redeploy
+1. Import the repo and set **Root Directory** to `frontend`. Framework: Next.js.
+2. Add the environment variable `NEXT_PUBLIC_API_BASE_URL=https://repogent.onrender.com` (no trailing slash).
+3. Deploy. Redeploy after changing the variable, because it is baked in at build time.
 
-#### Environment Variables
+### Free-tier notes
 
-| Variable | Required | Description |
-|---|---|---|
-| `GROQ_API_KEY` | Yes | Primary LLM provider (fast, free tier) |
-| `MISTRAL_API_KEY` | No | Fallback LLM provider |
-| `VECTOR_STORE_PATH` | No | ChromaDB path (defaults to `data/chroma_db`; set to disk path on Render) |
-| `CLONE_TEMP_DIR` | No | Cloned-repo temp dir (defaults to `data/repos`) |
-| `DB_PATH` | No | SQLite path (defaults to `data/codeatlas.db`) |
-| `GITHUB_TOKEN` | No | Higher GitHub API rate limits for repo fetching |
-| `TAVILY_API_KEY` / `FIRECRAWL_API_KEY` | No | Web-search/scrape tools for the agent |
-| `GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY` / `GITHUB_WEBHOOK_SECRET` | No | GitHub App integration + webhooks only |
-| `GOOGLE_SHEET_ID` / `GOOGLE_SERVICE_ACCOUNT_PATH` | No | Sheets logging integration only |
+- **Cold starts:** Render free services sleep after 15 minutes idle. The frontend pings `/health` on load and shows a "backend is waking up" state while it starts.
+- **No persistent disk:** ChromaDB, SQLite history and cloned repos are wiped on every restart or redeploy. After a restart, re-onboard the repo.
+- **Memory:** 512 MB, so very large repos may run out of memory.
+- **Optional keep-alive:** a free uptime monitor (for example UptimeRobot) pinging `/health` every 5-10 minutes keeps the service awake.
 
-## Project Structure
+## Environment variables
+
+### Backend
+
+| Variable                                                                   | Required      | Description                                                                 |
+| -------------------------------------------------------------------------- | ------------- | --------------------------------------------------------------------------- |
+| `GROQ_API_KEY`                                                           | Yes           | Primary LLM provider (fast, free tier)                                      |
+| `MISTRAL_API_KEY`                                                        | No            | Fallback LLM provider                                                       |
+| `CORS_ORIGINS`                                                           | In production | Allowed frontend origins, comma-separated (defaults to `*` for local dev) |
+| `FRONTEND_URL`                                                           | No            | Frontend base URL, used for GitHub App redirects                            |
+| `VECTOR_STORE_PATH`                                                      | No            | ChromaDB path (default `data/chroma_db`)                                  |
+| `CLONE_TEMP_DIR`                                                         | No            | Cloned-repo temp dir (default `data/repos`)                               |
+| `DB_PATH`                                                                | No            | SQLite path (default `data/codeatlas.db`)                                 |
+| `GITHUB_TOKEN`                                                           | No            | Higher GitHub API rate limits for repo fetching                             |
+| `TAVILY_API_KEY` / `FIRECRAWL_API_KEY`                                 | No            | Web search and scrape tools for the agent                                   |
+| `GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY` / `GITHUB_WEBHOOK_SECRET` | No            | GitHub App integration and webhooks only                                    |
+| `GOOGLE_SHEET_ID` / `GOOGLE_SERVICE_ACCOUNT_PATH`                      | No            | Sheets logging integration only                                             |
+
+### Frontend
+
+| Variable                     | Required | Description                                  |
+| ---------------------------- | -------- | -------------------------------------------- |
+| `NEXT_PUBLIC_API_BASE_URL` | Yes      | Public URL of the backend, no trailing slash |
+
+## Project structure
 
 ```
 backend/
 ├── app/
-│   ├── main.py                  # FastAPI app, CORS, routes, static mount
-│   ├── config.py                # pydantic-settings (.env)
-│   ├── llm_router.py            # Groq → Mistral fallback with retry
-│   ├── embeddings.py            # Zero-dependency hash embeddings
-│   ├── db.py / cache.py         # SQLite (sqlmodel) + in-memory session store
-│   ├── models/
-│   │   ├── schemas.py           # Pydantic request/response models
-│   │   └── db_models.py         # SQLModel tables (jobs, scan history, PRs)
-│   ├── routes/
-│   │   ├── onboard.py           # /onboard/async, /ask, /trace_flow, /start_here, /blast_radius, /explain_file
-│   │   ├── jobs.py              # /jobs/submit, /jobs/{id}/status (polling)
-│   │   ├── integration.py       # /graph, /scan_report, /explain_repo
-│   │   ├── history.py           # /scan_history (save + fetch)
-│   │   ├── autofix.py           # /autofix/estimate, /autofix/run, /autofix/prs
-│   │   └── github_webhook.py    # GitHub App connect/disconnect/webhook
-│   ├── graph/
-│   │   ├── graph_builder.py     # Build dep graph from parsed imports
-│   │   ├── python_parser.py     # AST-based Python parser
-│   │   ├── js_parser.py         # Regex-based JS/TS parser
-│   │   └── blast_radius.py      # Transitive impact analysis
-│   ├── ingestion/
-│   │   ├── repo_loader.py       # Git clone + file traversal
-│   │   ├── chunker.py           # LangChain code-aware chunking
-│   │   └── vector_store.py      # ChromaDB build/retrieval
-│   ├── chains/                  # LLM chains (label, merge, flow-trace, start-here)
-│   ├── agents/                  # Autofix pipeline (triage, fix, verify, PR)
-│   ├── integrations/            # GitHub App auth, Sheets logging
-│   └── tools/                   # LangChain tools (file, search, scrape)
-├── data/
-│   ├── chroma_db/               # Persistent vector stores
-│   ├── repos/                   # Cloned repo temp dirs
-│   └── codeatlas.db             # SQLite (jobs, history)
-├── static/                      # Built frontend (production, generated by build:static)
-├── pyproject.toml + uv.lock     # Backend deps (uv)
-└── requirements.txt             # Pinned export (used only as fallback)
+│   ├── main.py              # FastAPI app, CORS, routes, optional static mount
+│   ├── config.py            # pydantic-settings (.env)
+│   ├── llm_router.py        # Groq → Mistral fallback with retry
+│   ├── embeddings.py        # HuggingFace embeddings with hash fallback
+│   ├── db.py / cache.py     # SQLite (SQLModel) + in-memory session store
+│   ├── models/              # Pydantic schemas and SQLModel tables
+│   ├── routes/              # onboard, jobs, integration, history, autofix, github_webhook
+│   ├── graph/               # graph builder, Python AST parser, JS/TS parser, blast radius
+│   ├── ingestion/           # repo loader, code-aware chunker, ChromaDB vector store
+│   ├── chains/              # LLM chains (label, merge, flow-trace, start-here)
+│   ├── agents/              # autofix pipeline (triage, fix, verify, PR)
+│   ├── integrations/        # GitHub App auth, Sheets logging
+│   └── tools/               # LangChain tools (file, search, scrape)
+├── pyproject.toml + uv.lock # dependencies (uv)
+└── requirements.txt         # pinned export, fallback only
 
 frontend/
-├── app/
-│   ├── layout.tsx                # Root layout, metadata + favicons
-│   ├── page.tsx                  # Home page (hero + sections)
-│   ├── workspace/page.tsx        # Workspace page (graph + panels)
-│   ├── github/callback/page.tsx  # GitHub App OAuth callback
-│   └── globals.css               # Tailwind v4 + shadcn + theme
-├── components/
-│   ├── hero.tsx                  # URL/upload input with example repo buttons
-│   ├── processing-screen.tsx     # SSE progress modal
-│   ├── site-header.tsx / site-footer.tsx
-│   ├── how-it-works.tsx / features.tsx / live-preview.tsx
-│   └── codeatlas/
-│       ├── workspace.tsx         # Layout: TopBar + GraphCanvas + RightPanel
-│       ├── top-bar.tsx           # Header + agent activity bar
-│       ├── graph/
-│       │   ├── graph-canvas.tsx  # Interactive React Flow graph (~1350 lines)
-│       │   ├── node-popover.tsx  # File details popover on click
-│       │   └── tech-stack-strip.tsx
-│       └── panel/
-│           ├── right-panel.tsx   # Tabbed chat/scan/explain panel
-│           ├── chat-tab.tsx      # AI chat with RAG
-│           ├── scan-tab.tsx      # Security scan with export (JSON/CSV/TXT/PDF)
-│           └── explain-tab.tsx   # Repo summary cards
-└── lib/codeatlas/
-    ├── types.ts                  # TypeScript interfaces
-    ├── api.ts                    # Session-aware API wrappers
-    ├── context.tsx               # React context + global store
-    └── client.ts                 # HTTP client + SSE reader + graph mapper
+├── app/                     # Next.js routes: home, workspace, GitHub callback
+├── components/              # hero, processing screen, graph canvas, chat/scan/explain panels
+└── lib/codeatlas/           # types, API wrappers, context, HTTP client
 ```
 
-## Key Design Decisions
+## Key design decisions
 
-| Decision | Rationale |
-|---|---|
-| **Polling for onboarding** | `/onboard/async` returns a job id; frontend polls `/jobs/{id}/status` for progress during the multi-step pipeline (clone → chunk → graph → label) |
-| **Groq + Mistral fallback** | Groq is fast with a generous free tier; Mistral catches auth/rate-limit failures transparently |
-| **Hash embeddings** | SHA-256-based 128-dim embeddings with zero dependencies or API calls |
-| **Two-level graph** | Module overview (circular) → focus drill-down (grid) prevents overwhelming users with hundreds of nodes |
-| **SQLite + in-memory cache** | Jobs, scan history and PRs persist in SQLite (`data/codeatlas.db`); hot sessions cached in memory |
-| **Hash-based route matching** | Python uses AST; JS uses regex — simpler but less robust for complex patterns |
-| **Heuristic health scan** | File count ratios + regex pattern matching (not a real SAST tool) — lightweight O(1) per file |
-| **Single binary deploy** | Backend serves built frontend as static files; one uvicorn process runs everything |
+| Decision                        | Rationale                                                                                                                                 |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Polling for onboarding          | `/onboard/async` returns a job id and the frontend polls `/jobs/{id}/status` for progress through clone, chunk, graph and label steps |
+| Groq with Mistral fallback      | Groq is fast with a generous free tier; Mistral catches auth and rate-limit failures transparently                                        |
+| Embedding fallback              | HuggingFace embeddings by default, with a deterministic hash-based fallback so the app still works without the API                        |
+| Two-level graph                 | Module overview, then file drill-down, so hundreds of nodes never land on the screen at once                                              |
+| SQLite plus in-memory cache     | Jobs, scan history and PRs live in SQLite; hot sessions are cached in memory                                                              |
+| AST for Python, regex for JS/TS | Reliable for Python; simpler but less robust for unusual JS/TS patterns                                                                   |
+| Heuristic health scan           | File-ratio and regex checks, not a real SAST tool, so it stays fast per file                                                              |
+| Split deployment                | Static-friendly Next.js on Vercel, API on Render, each on a free plan                                                                     |
 
-## API Endpoints
+## API endpoints
 
-| Method | Path | Description |
-|---|---|---|
-| GET | `/health` | Health check (also the Render `healthCheckPath`) |
-| GET | `/health/llm` | Health check + active LLM provider |
-| POST | `/onboard/async` | Start background onboarding job, returns `job_id` |
-| POST | `/jobs/submit` | Submit a repo job (alternate entrypoint) |
-| GET | `/jobs/{job_id}/status` | Poll job progress / result |
-| POST | `/graph` | Get stored dependency graph |
-| POST | `/scan_report` | Code health scan (grade, metrics, issues) |
-| POST | `/explain_repo` | 5 summary bullet points about the repo |
-| POST | `/ask` | RAG-based Q&A with vector search |
-| POST | `/trace_flow` | LLM-narrated forward execution trace |
-| POST | `/start_here` | Goal-guided reading path through the graph |
-| POST | `/blast_radius` | Transitive dependency impact (BFS depth ≤ 10) |
-| POST | `/explain_file` | LLM one-paragraph file explanation |
-| GET/POST | `/scan_history` | Fetch / save scan reports per repo |
-| POST | `/autofix/estimate` | Estimate an autofix run |
-| POST | `/autofix/run` | Run the autofix pipeline |
-| GET | `/autofix/prs/{repo}` | List autofix PRs for a repo |
-| POST | `/github/connect` `/github/disconnect` | Link / unlink GitHub App |
-| GET | `/github/connection/{repo}` | Connection status for a repo |
-| POST | `/github/webhook` | GitHub App webhook receiver |
+| Method   | Path                                        | Description                                         |
+| -------- | ------------------------------------------- | --------------------------------------------------- |
+| GET      | `/health`                                 | Health check, also used for wake-up pings           |
+| GET      | `/health/llm`                             | Health check plus active LLM provider               |
+| POST     | `/onboard/async`                          | Start background onboarding job, returns `job_id` |
+| POST     | `/jobs/submit`                            | Submit a repo job (alternate entrypoint)            |
+| GET      | `/jobs/{job_id}/status`                   | Poll job progress and result                        |
+| POST     | `/graph`                                  | Get stored dependency graph                         |
+| POST     | `/scan_report`                            | Code health scan (grade, metrics, issues)           |
+| POST     | `/explain_repo`                           | Five summary bullet points about the repo           |
+| POST     | `/ask`                                    | RAG-based Q&A with vector search                    |
+| POST     | `/trace_flow`                             | LLM-narrated forward execution trace                |
+| POST     | `/start_here`                             | Goal-guided reading path through the graph          |
+| POST     | `/blast_radius`                           | Transitive dependency impact (BFS, depth up to 10)  |
+| POST     | `/explain_file`                           | One-paragraph LLM file explanation                  |
+| GET/POST | `/scan_history`                           | Fetch or save scan reports per repo                 |
+| POST     | `/autofix/estimate`                       | Estimate an autofix run                             |
+| POST     | `/autofix/run`                            | Run the autofix pipeline                            |
+| GET      | `/autofix/prs/{repo}`                     | List autofix PRs for a repo                         |
+| POST     | `/github/connect`, `/github/disconnect` | Link or unlink the GitHub App                       |
+| GET      | `/github/connection/{repo}`               | Connection status for a repo                        |
+| POST     | `/github/webhook`                         | GitHub App webhook receiver                         |
 
-## Tech Stack
+## Tech stack
 
-**Backend**: FastAPI, LangChain, Groq, Mistral, ChromaDB, GitPython
-**Frontend**: Next.js 16, React 19, React Flow (@xyflow/react), Tailwind CSS v4, Framer Motion
+**Backend:** FastAPI, LangChain, Groq, Mistral, ChromaDB, GitPython, SQLModel
+**Frontend:** Next.js 16, React 19, React Flow (@xyflow/react), Tailwind CSS v4, Framer Motion
+**Hosting:** Vercel (frontend), Render free tier (backend)

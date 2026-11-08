@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings
+from typing import List
 
 
 class Settings(BaseSettings):
@@ -18,6 +19,9 @@ class Settings(BaseSettings):
     github_webhook_secret: str = ""
 
     job_hard_timeout_seconds: int = 300
+
+    cors_origins: List[str] = ["*"]
+    frontend_url: str = ""
 
     class Config:
         env_file = ".env"

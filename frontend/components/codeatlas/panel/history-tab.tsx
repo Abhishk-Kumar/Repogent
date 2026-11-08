@@ -4,8 +4,7 @@ import { useEffect, useState } from "react"
 import { motion } from "framer-motion"
 import { Activity, TrendingUp, TrendingDown, Minus } from "lucide-react"
 import { useCodeAtlas } from "@/lib/codeatlas/context"
-
-const BASE = process.env.NEXT_PUBLIC_API_BASE_URL || (typeof window !== 'undefined' ? window.location.origin : "http://localhost:8000")
+import { apiFetch } from "@/lib/codeatlas/config"
 
 interface HistoryEntry {
   health_score: number
@@ -74,8 +73,7 @@ export function HistoryTab() {
 
   useEffect(() => {
     if (!repoUrl) return
-    fetch(`${BASE}/scan_history/${encodeURIComponent(repoUrl)}`)
-      .then(r => r.json())
+    apiFetch<HistoryEntry[]>(`/scan_history/${encodeURIComponent(repoUrl)}`)
       .then(data => setHistory(Array.isArray(data) ? data : []))
       .catch(() => {})
   }, [repoUrl])

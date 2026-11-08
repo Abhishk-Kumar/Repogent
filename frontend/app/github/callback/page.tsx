@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
+import { apiFetch } from "@/lib/codeatlas/config"
 
 function getCookie(name: string): string {
   if (typeof document === "undefined") return ""
@@ -24,10 +25,8 @@ function GitHubCallbackInner() {
 
     const finish = async () => {
       if (installationId && sourceRepo) {
-        const base =
-          process.env.NEXT_PUBLIC_API_BASE_URL || window.location.origin
         try {
-          await fetch(`${base}/github/connect`, {
+          await apiFetch("/github/connect", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({

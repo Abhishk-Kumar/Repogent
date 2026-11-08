@@ -27,10 +27,14 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Codebase Onboarding Agent")
 
+# Configure CORS
+cors_origins = settings.cors_origins
+allow_credentials = cors_origins != ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=cors_origins,
+    allow_credentials=allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -57,8 +61,10 @@ async def health_llm():
     }
 
 
+# Mount static files only if the directory exists (for API-only deployment)
 STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static")
-app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
+if os.path.isdir(STATIC_DIR):
+    app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
 
 
 @app.on_event("startup")

@@ -3,8 +3,7 @@
 import { useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { GitPullRequest, Check, Loader2 } from "lucide-react"
-
-const BASE = process.env.NEXT_PUBLIC_API_BASE_URL || (typeof window !== 'undefined' ? window.location.origin : "http://localhost:8000")
+import { apiFetch } from "@/lib/codeatlas/config"
 
 export function GitHubConnect({ repoUrl }: { repoUrl: string }) {
   const [connected, setConnected] = useState(false)
@@ -14,7 +13,7 @@ export function GitHubConnect({ repoUrl }: { repoUrl: string }) {
     setLoading(true)
     try {
       if (connected) {
-        await fetch(`${BASE}/github/disconnect`, {
+        await apiFetch("/github/disconnect", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ repo_url: repoUrl }),

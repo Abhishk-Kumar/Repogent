@@ -1,11 +1,12 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef, useCallback } from "react"
 import { AnimatePresence, motion } from "framer-motion"
-import { Check, Compass, Loader2, Sparkles, X } from "lucide-react"
+import { Check, Compass, Loader2, Sparkles, X, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { startPollingJob } from "@/lib/codeatlas/client"
 import { useCodeAtlas } from "@/lib/codeatlas/context"
+import { useBackendStatus } from "@/lib/codeatlas/config"
 
 export function ProcessingScreen({
   repo,
@@ -29,8 +30,12 @@ export function ProcessingScreen({
   const [done, setDone] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const { setOnboardResult, setJobProgress } = useCodeAtlas()
+  const { state: backendState, warmUp } = useBackendStatus()
+  const queuedRef = useRef<(() => void) | null>(null)
   const repoUrl = repo.startsWith("http") ? repo : `https://github.com/${repo}`
-  useEffect(() => {
+
+  // Queue the onboarding if backend is waking
+  const startOnboarding = useCallback(() => {
     const controller = new AbortController()
 
     startPollingJob(
@@ -73,7 +78,19 @@ export function ProcessingScreen({
     return () => {
       controller.abort()
     }
-  }, [repoUrl])
+  }, [repoUrl, setJobProgress, setOnboardResult])
+
+  useEffect(() => {
+    if (backendState === "ready" || backendState === "idle") {
+      // Backend is ready, start immediately
+      const cleanup = startOnboarding()
+      return cleanup
+    } else if (backendState === "waking") {
+      // Queue the onboarding to start when ready
+      queuedRef.current = startOnboarding
+    }
+    // If failed, don't auto-start - user will click retry
+  }, [backendState, startOnboarding])
 
   useEffect(() => {
     if (done) {
@@ -84,7 +101,25 @@ export function ProcessingScreen({
     }
   }, [done, repo, onComplete])
 
+  const handleRetry = () => {
+    setError(null)
+    setDone(false)
+    setProgress(0)
+    setSteps([
+      { message: `Cloning ${repo}...`, state: "active" },
+      { message: "Parsing files...", state: "pending" },
+      { message: "Building dependency graph...", state: "pending" },
+      { message: "Running security scan...", state: "pending" },
+      { message: "Generating AI summary...", state: "pending" },
+    ])
+    const cleanup = startOnboarding()
+    return cleanup
+  }
+
   const shown = steps
+
+  const isWaking = backendState === "waking" && !done
+  const isFailed = backendState === "failed" && !done
 
   return (
     <motion.div
@@ -129,7 +164,9 @@ export function ProcessingScreen({
                 ? "Error"
                 : done
                   ? "Ready to explore"
-                  : "Onboarding repository"}
+                  : isWaking
+                    ? "Waking up server…"
+                    : "Onboarding repository"}
             </h2>
             <p className="font-mono text-xs text-muted-foreground">{repo}</p>
           </div>
@@ -138,7 +175,7 @@ export function ProcessingScreen({
         <div className="mt-6">
           <div className="mb-2 flex justify-between text-xs text-muted-foreground">
             <span>
-              {error ? "Failed" : done ? "Complete" : "Analyzing..."}
+              {error ? "Failed" : done ? "Complete" : isWaking ? "Waking up..." : "Analyzing..."}
             </span>
             <span className="font-mono">{progress}%</span>
           </div>
@@ -161,11 +198,11 @@ export function ProcessingScreen({
           >
             <p className="text-sm text-orange-500">{error}</p>
             <Button
-              onClick={onClose}
+              onClick={handleRetry}
               variant="outline"
               className="mt-3 w-full rounded-lg"
             >
-              Go back
+              Retry
             </Button>
           </motion.div>
         ) : (
@@ -214,6 +251,29 @@ export function ProcessingScreen({
               </li>
             ))}
           </ul>
+        )}
+
+        {(isWaking || isFailed) && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mt-4 rounded-lg border border-primary/30 bg-primary/5 p-3 text-center text-xs text-primary"
+          >
+            {isWaking ? (
+              <>
+                <Loader2 className="size-4 mx-auto mb-1 animate-spin" />
+                <p>Waiting for backend to wake up…</p>
+              </>
+            ) : (
+              <button
+                onClick={handleRetry}
+                className="flex items-center gap-1.5 mx-auto text-primary hover:underline"
+              >
+                <RefreshCw className="size-3" />
+                Retry
+              </button>
+            )}
+          </motion.div>
         )}
       </motion.div>
     </motion.div>

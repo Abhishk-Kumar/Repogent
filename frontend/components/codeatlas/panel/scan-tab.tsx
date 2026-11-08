@@ -18,9 +18,8 @@ import { SEVERITY_META } from "../style-maps"
 import { ScanSkeleton } from "../skeletons"
 import { fetchScanReport, getSessionId, saveScanHistory } from "@/lib/codeatlas/api"
 import { useCodeAtlas } from "@/lib/codeatlas/context"
+import { apiFetch } from "@/lib/codeatlas/config"
 import type { ScanReport, Severity } from "@/lib/codeatlas/types"
-
-const BASE = process.env.NEXT_PUBLIC_API_BASE_URL || (typeof window !== 'undefined' ? window.location.origin : "http://localhost:8000")
 
 const GRADE_COLOR: Record<string, string> = {
   A: "var(--primary)",
@@ -264,12 +263,11 @@ function AutoFixSection({ report }: { report: ScanReport }) {
   useEffect(() => {
     if (!repoUrl || report.issues.length === 0) return
     setEstimating(true)
-    fetch(`${BASE}/autofix/estimate`, {
+    apiFetch<{ auto_fixable: number }>("/autofix/estimate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ repo_url: repoUrl, scan_issues: report.issues }),
     })
-      .then(r => r.json())
       .then(d => setAutoFixable(d.auto_fixable))
       .catch(() => {})
       .finally(() => setEstimating(false))
@@ -279,29 +277,31 @@ function AutoFixSection({ report }: { report: ScanReport }) {
     if (!repoUrl) return
     setFixing(true)
     try {
-      const resp = await fetch(`${BASE}/autofix/run`, {
+      const resp = await apiFetch<{ job_id: string; error?: string }>("/autofix/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ repo_url: repoUrl, scan_issues: report.issues }),
       })
-      const data = await resp.json()
-      if (data.error) {
-        console.error(data.error)
+      if (resp.error) {
+        console.error(resp.error)
         setFixing(false)
         return
       }
       const pollId = setInterval(async () => {
-        const statusResp = await fetch(`${BASE}/jobs/${data.job_id}/status`)
-        const status = await statusResp.json()
-        if (status.status === "done" && status.result) {
-          clearInterval(pollId)
-          setFixing(false)
-          if (status.result.pr_url) {
-            setPrInfo({ url: status.result.pr_url, number: status.result.pr_number })
+        try {
+          const statusResp = await apiFetch<{ status: string; result?: { pr_url: string; pr_number: number } }>(`/jobs/${resp.job_id}/status`)
+          if (statusResp.status === "done" && statusResp.result) {
+            clearInterval(pollId)
+            setFixing(false)
+            if (statusResp.result.pr_url) {
+              setPrInfo({ url: statusResp.result.pr_url, number: statusResp.result.pr_number })
+            }
+          } else if (statusResp.status === "failed") {
+            clearInterval(pollId)
+            setFixing(false)
           }
-        } else if (status.status === "failed") {
-          clearInterval(pollId)
-          setFixing(false)
+        } catch {
+          // Transient error during polling - continue polling
         }
       }, 2000)
     } catch {

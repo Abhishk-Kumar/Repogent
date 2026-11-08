@@ -8,45 +8,7 @@ import type {
   TechBadge,
   JobStatus,
 } from "./types"
-
-const BASE = process.env.NEXT_PUBLIC_API_BASE_URL || (typeof window !== 'undefined' ? window.location.origin : "http://localhost:8000")
-
-const FETCH_TIMEOUT = 30_000
-
-async function post<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
-  const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT)
-  try {
-    const res = await fetch(`${BASE}${path}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      signal: signal || controller.signal,
-    })
-    if (!res.ok) {
-      const text = await res.text().catch(() => "")
-      throw new Error(`POST ${path} ${res.status}: ${text}`)
-    }
-    return res.json()
-  } finally {
-    clearTimeout(timeoutId)
-  }
-}
-
-async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
-  const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT)
-  try {
-    const res = await fetch(`${BASE}${path}`, { signal: signal || controller.signal })
-    if (!res.ok) {
-      const text = await res.text().catch(() => "")
-      throw new Error(`GET ${path} ${res.status}: ${text}`)
-    }
-    return res.json()
-  } finally {
-    clearTimeout(timeoutId)
-  }
-}
+import { apiFetch, isSessionExpiredError } from "./config"
 
 function classifyByFolder(folder: string): RepoFileNode["group"] {
   const f = folder.toLowerCase()
@@ -247,7 +209,7 @@ function mapBackendGraphToFrontend(data: {
   }
 }
 
-// ── New polling-based onboarding ──
+// ── Polling-based onboarding ──
 
 export async function startPollingJob(
   repoUrl: string,
@@ -257,54 +219,71 @@ export async function startPollingJob(
   signal?: AbortSignal,
 ): Promise<void> {
   try {
-    const { job_id } = await post<{ job_id: string; status: string }>("/onboard/async", { repo_url: repoUrl })
+    const { job_id } = await apiFetch<{ job_id: string; status: string }>("/onboard/async", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repo_url: repoUrl }),
+    })
 
     const pollInterval = 2000
 
     while (true) {
       if (signal?.aborted) return
 
-      const status = await get<JobStatus>(`/jobs/${job_id}/status`)
+      try {
+        const status = await apiFetch<JobStatus>(`/jobs/${job_id}/status`)
 
-      if (status.status === "failed") {
-        onError(status.error_message || "Job failed")
-        return
-      }
-
-      if (status.progress_message) {
-        onProgress(status.progress_message, status.progress_current, status.progress_total)
-      }
-
-      if (status.status === "done" && status.result) {
-        const result = status.result as {
-          dependency_graph: {
-            nodes: { id: string; label: string; folder: string; language: string; functions: string[]; classes: string[]; purpose: string }[]
-            edges: { id: string; source: string; target: string }[]
-          }
-          sources: string[]
+        if (status.status === "failed") {
+          onError(status.error_message || "Job failed")
+          return
         }
-        const graph = mapBackendGraphToFrontend(result.dependency_graph)
-        onComplete({
-          sessionId: repoUrl,
-          graph,
-          fileList: result.sources ?? [],
-        })
-        return
-      }
 
-      if (status.status === "running" || status.status === "pending") {
+        if (status.progress_message) {
+          onProgress(status.progress_message, status.progress_current, status.progress_total)
+        }
+
+        if (status.status === "done" && status.result) {
+          const result = status.result as {
+            dependency_graph: {
+              nodes: { id: string; label: string; folder: string; language: string; functions: string[]; classes: string[]; purpose: string }[]
+              edges: { id: string; source: string; target: string }[]
+            }
+            sources: string[]
+          }
+          const graph = mapBackendGraphToFrontend(result.dependency_graph)
+          onComplete({
+            sessionId: repoUrl,
+            graph,
+            fileList: result.sources ?? [],
+          })
+          return
+        }
+
+        if (status.status === "running" || status.status === "pending") {
+          await new Promise((resolve) => setTimeout(resolve, pollInterval))
+        }
+      } catch (err) {
+        if (isSessionExpiredError(err)) {
+          onError("This session expired because the free server restarted. Please onboard the repo again.")
+          return
+        }
+        // For transient errors during polling, continue polling (don't abort)
+        if (signal?.aborted) return
         await new Promise((resolve) => setTimeout(resolve, pollInterval))
       }
     }
   } catch (err) {
     if (signal?.aborted) return
+    if (isSessionExpiredError(err)) {
+      onError("This session expired because the free server restarted. Please onboard the repo again.")
+      return
+    }
     onError(err instanceof Error ? err.message : "Unknown error")
   }
 }
 
-
 export async function fetchRepoGraph(sessionId: string): Promise<RepoGraph> {
-  const data = await post<{
+  const data = await apiFetch<{
     nodes: {
       id: string
       label: string
@@ -317,28 +296,40 @@ export async function fetchRepoGraph(sessionId: string): Promise<RepoGraph> {
     edges: { id: string; source: string; target: string }[]
     isolated_files: string[]
     routes: { file: string; method: string; path: string }[]
-  }>("/graph", { session_id: sessionId })
+  }>("/graph", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: sessionId }),
+  })
   return mapBackendGraphToFrontend(data)
 }
 
 export async function fetchScanReport(
   sessionId: string,
 ): Promise<ScanReport> {
-  const data = await post<ScanReport>("/scan_report", {
-    session_id: sessionId,
+  const data = await apiFetch<ScanReport>("/scan_report", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: sessionId }),
   })
   return data
 }
 
 export async function saveScanHistory(repoUrl: string, report: ScanReport): Promise<void> {
-  await post("/scan_history", { repo_url: repoUrl, report })
+  await apiFetch("/scan_history", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ repo_url: repoUrl, report }),
+  })
 }
 
 export async function fetchExplain(
   sessionId: string,
 ): Promise<ExplainPoint[]> {
-  const data = await post<{ points: ExplainPoint[] }>("/explain_repo", {
-    session_id: sessionId,
+  const data = await apiFetch<{ points: ExplainPoint[] }>("/explain_repo", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: sessionId }),
   })
   return data.points
 }
@@ -348,9 +339,10 @@ export async function sendChatMessage(
   _history: ChatMessage[],
   message: string,
 ): Promise<string> {
-  const data = await post<{ answer: string }>("/ask", {
-    session_id: sessionId,
-    question: message,
+  const data = await apiFetch<{ answer: string }>("/ask", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: sessionId, question: message }),
   })
   return data.answer
 }

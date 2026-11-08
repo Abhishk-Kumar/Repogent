@@ -12,6 +12,8 @@ import { SiteFooter } from "@/components/site-footer"
 import { ProcessingScreen } from "@/components/processing-screen"
 import { ParticleBackground } from "@/components/codeatlas/particle-bg"
 import { CodeAtlasProvider } from "@/lib/codeatlas/context"
+import { BackendStatusProvider } from "@/lib/codeatlas/config"
+import { WakingBanner } from "@/components/codeatlas/waking-banner"
 
 export default function Page() {
   const [repo, setRepo] = useState<string | null>(null)
@@ -24,26 +26,29 @@ export default function Page() {
   }
 
   return (
-    <CodeAtlasProvider>
-      <ParticleBackground />
-      <main className="relative z-10 min-h-screen">
-        <SiteHeader />
-        <Hero onOnboard={setRepo} />
-        <HowItWorks />
-        <Features />
-        <LivePreview />
-        <SiteFooter onOnboard={setRepo} />
+    <BackendStatusProvider>
+      <CodeAtlasProvider>
+        <WakingBanner />
+        <ParticleBackground />
+        <main className="relative z-10 min-h-screen">
+          <SiteHeader />
+          <Hero onOnboard={setRepo} />
+          <HowItWorks />
+          <Features />
+          <LivePreview />
+          <SiteFooter onOnboard={setRepo} />
 
-        <AnimatePresence>
-          {repo && (
-            <ProcessingScreen
-              repo={repo}
-              onClose={() => setRepo(null)}
-              onComplete={handleComplete}
-            />
-          )}
-        </AnimatePresence>
-      </main>
-    </CodeAtlasProvider>
+          <AnimatePresence>
+            {repo && (
+              <ProcessingScreen
+                repo={repo}
+                onClose={() => setRepo(null)}
+                onComplete={handleComplete}
+              />
+            )}
+          </AnimatePresence>
+        </main>
+      </CodeAtlasProvider>
+    </BackendStatusProvider>
   )
 }
